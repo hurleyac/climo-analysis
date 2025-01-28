@@ -1,0 +1,5423 @@
+---
+title: "Operational Climate Data Summary (OCDS) Analysis of Varying Climate Zones within the United States"
+author: "Aaron Hurley"
+date: "2024-04-15"
+output: 
+  html_document:
+    code_folding: hide
+---
+
+```{=html}
+<style type="text/css">
+.main-container {
+  max-width: 90%;
+  margin-left: auto;
+  margin-right: auto;
+}
+
+table, th, td {
+  border-collapse:collapse; 
+  border: 1px solid black; 
+  text-align:center;
+  padding: 0.5em;
+}
+.y {
+  background-color: #00FF00;
+}
+.n {
+  background-color: #FF0000;
+  color: #FF0000;
+}
+.m {
+  background-color: #FFA500;
+  color: #FFA500;
+}
+.r {
+  background-color: #FF944D
+}
+.b {
+  background-color: #CCEEFF
+}
+</style>
+```
+```{css, echo=FALSE}
+pre {
+  max-height: 500px;
+  overflow-y: auto;
+}
+
+pre[class] {
+  max-height: 100px;
+}
+
+```
+
+```{r setup, include=FALSE, warning=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+#packages
+library(stringi)
+library(lubridate)
+library(dplyr)
+library(tidyverse)
+library(splines)
+library(stats)
+options(scipen = 999)
+
+# read data from file - if first run-through, run long script. if you're satisfied with data cleaning, it checks for output files and if they exist, it uploads the imputed data files
+
+source("analysis-Rcode.R", local = TRUE)
+
+# produce plots
+source("analysis-Plots.R", local = TRUE)
+```
+
+#  {.tabset .active}
+
+## Introduction
+
+:::: {style="display: flex;"}
+::: {}
+<center>![14th Weather Squadron Patch](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/14ws.png)</center>
+:::
+:::{}
+The 14th Weather Squadron (14WS) is the US Air Force’s only climatological unit. They are tasked to “Collect, Protect, [and] Exploit” global weather data. They do this by ingesting weather observations from around the world and storing them for climatological analysis to support the DOD. They produce many kinds of products – including the Operational Climate Data Summary (OCDS). The OCDS is a product that is produced for nearly 4000 locations around the world. An example OCDS is provided in Appendix A (`r xfun::embed_file('Appendix A - KIND_Climogram.pdf')`). Each product is currently comprised of the following monthly statistics calculated from the previous complete 10 years of data for that location:
+
+-	maximum (max) temperature [extreme], 
+-	minimum (min) temperature [extreme], 
+-	average max temperature, 
+-	average min temperature, 
+-	maximum precipitation (liquid and snow, where available) [extreme],
+-	average precipitation (liquid and snow, where available), 
+-	monthly prevailing wind speed and direction [extreme], 
+-	and max and min average relative humidity.
+
+These monthly temperature, precipitation, wind, and humidity statistics are averaged at the 15th day of each month, whereas the maximum and minimum temperature are absolutes that are recorded. The OCDS is updated whenever necessary – typically on a monthly to quarterly basis, or when errors are discovered that slipped through the Quality Check process. The purpose of updating the OCDS is to recalculate each of the above metrics with the most recent data. By updating these metrics, current, relevant weather data is presented. These OCDSs are exceedingly useful for decision makers during the planning phase of exercises, training experiences, and operations as these events take place up to years in the future after planning.
+:::
+::::
+
+## Domain 1 {.tabset}
+
+### Business Understanding
+
+Recently, a request was sent to the 14WS to investigate the reality of producing a 10-day OCDS instead of monthly. Meaning, it would encompass a 10-day interval for averages instead of a month’s worth of data. This prompted several questions:
+
+*	Are there periods of time across specific climates that can be identified as beneficial to use 10-day OCDS?
+
+*	Does it matter whether we use 10 years, 20 years, or 30 years of data for operational purposes? That is, how much of a difference is there?
+
+* How are the stations changing with time? Do these statistical analyses match up with meteorological effects for the stations?
+
+The purpose of this report is to explore the benefits and costs of performing such an analysis by taking a small subset of locations from the largest three climate regions within the United States. 
+Benefits for this analysis include the ability to identify drastic changes in the climate that should be accounted for in relaying climate information. E.g., if Location A gets 4 inches of rain in one month, but they only average one rain event per month, then those 4 inches likely come all at once and it would stand out in an analysis of the data. 
+
+Costs to this analysis include the following:
+
+*	The cost to rewrite the software to produce the shorter interval analysis, 
+
+*	The time spent by analysts to work on the OCDSs (approximately 20 hours per OCDS which would likely increase to approximately 25 hours per OCDS), and 
+
+*	The computing time by the servers (currently it takes approximately 1 hour to run an OCDS, but by creating 3x the number of intervals it would take approximately 3 hours to run).
+
+Keeping these constraints in mind, the zones and specific locations are:
+
+<table>
+	<tr>
+		<th>Climate Zone</th>
+		<th>Location Name</th>
+		<th>Airport Identifier (ICAO)</th>
+	</tr>
+	<tr>
+		<td>Heavy Snow Winter</td>
+		<td>Robert's Field, OR</td>
+		<td>KRDM</td>
+	</tr>
+	<tr>
+		<td>Heavy Snow Winter</td>
+		<td>Buffalo, NY</td>
+		<td>KBUF</td>
+	</tr>
+	<tr>
+		<td>Warm Summer, Cold Winter</td>
+		<td>Topeka, KS</td>
+		<td>KFOE</td>
+	</tr>
+	<tr>
+		<td>Warm Summer, Cold Winter</td>
+		<td>Madison, WI</td>
+		<td>KMSN</td>
+	</tr>
+	<tr>
+		<td>Warm Summer, Cold Winter</td>
+		<td>Tri-Cities Airport, TN</td>
+		<td>KTRI</td>
+	</tr>
+	<tr>
+		<td>Warm Summer, Cold Winter</td>
+		<td>Juneau, AK</td>
+		<td>PAJN</td>
+	</tr>
+	<tr>
+		<td>Arid</td>
+		<td>El Paso, TX</td>
+		<td>KELP</td>
+	</tr>
+	<tr>
+		<td>Arid</td>
+		<td>St. George, UT</td>
+		<td>KSGU</td>
+	</tr>
+</table>
+
+
+By comparing these locations and seeing if there are commonalities in the assessment, there is the potential for some assumptions to be made that could make transitioning to a 10-day OCDS much simpler. If similarities are found in the 10-, 20-, and 30-year climatology data and the future OCDS data, then the similarities in the general trends can be used for other locations in the same climate zones, regardless of the varying topography and other physical features surrounding each location. As an example, if there are similar temperature fluctuations for all locations in a climate zone, we could make a generalization about this for other locations not modeled in this study within the same climate zone.
+
+Additionally, we can use similarities to generalize how long the OCDS may remain valid for all locations within the climate zone. 
+
+The above locations were chosen due to varying topographical locations, varying geographical features, and availability of weather data. For example, for the Arid climate locations, St. George is in a valley surrounded by mountains, whereas El Paso has mountains only to the West. Additionally, El Paso is over 1000 feet higher in elevation than St. George. The availability of the weather data is important – some locations have a short amount of time that they have been sending weather data – e.g., 5 years. This would not be sufficient to determine climate trends (see note 1). Currently, the 14WS is using a minimum of 10 years of data to develop an OCDS for a site. However, for the scope of this project, we are looking at up to 30 years of daily weather data to determine which interval should be used for climate study.
+
+### About the Data
+
+We will be looking at the following variables in our calculations: 
+
+<center>
+<pre class="r"><code>variables</code></pre>
+<pre><code>                        Variable                                                                                          Description
+1           Average Temperature                                                                          The air temperature (Celsius)
+2  Average Dewpoint Temperature                                            The measure of moisture in the air at the station (Celsius)
+3        Average Wind Direction                                                            The direction the wind comes from (degrees)
+4            Average Wind Speed                                                           The 2-minute average speed of the wind (m/s)
+5       Average Wind Gust Speed                                                                        The 3-second maximum wind (m/s)
+6         Average Cloud Ceiling    The height of the lowest ceiling – a ceiling is 5/8 or more of sky coverage (ft above ground level)
+7           Average Cloud Cover                                    The amount of the sky that is covered by clouds (octants [eighths])
+8            Average Visibility                                     The distance you can see before 95% of light is scattered (meters)
+9     Average Altimeter Setting                                          The measure of the atmospheric pressure at the station (inHg)
+10        Average Precipitation                                                              The average amount of precipitation  (mm)</code></pre>
+</center>
+
+It has already been shown by other climate studies that maximum and minimum temperatures are increasing. However, this project looks at a targeted application of this data, as previously explained. Thus, the monthly maximum and minimum temperatures are currently irrelevant.
+
+The data was procured from the 14th Weather Squadron. Appendix B (`r xfun::embed_file('Appendix B - Data Dictionary.htm')`) is the data dictionary for the datasets used. This includes a description of the data and bounds associated with it. 
+
+To summarize the data, there are 190 columns and 2,379,050 rows:
+
+*	333,758 – KELP, 
+
+*	294,122 – KFOE, 
+
+*	413,290 – KBUF, 
+
+*	362,321 – KMSN, 
+
+*	333,637 – KSGU,
+
+*	284,865 – KRDM,
+
+*	318,127 – KTRI,
+
+*	338,930 – PAJN. 
+
+Within these datasets, there are a total of 373,164,955 null values. These account for 88% of the entries from within the entire datset. The next section details the method we will use for eliminating these null values.
+
+### Planned Methodology
+
+The planned methodology includes the following:
+
+<ol style="list-style-type: decimal">
+<li><p>Download the complete weather observations for the eight desired locations.</p></li>
+<li><p>Identify null values within the dataset.</p></li>
+<li><p>Handle null values in the following methods:</p></li>
+<ol style="list-style-type: lower-alpha">
+<li><p>Because we are looking at hourly observations, and because of the C<sup>1</sup> (continuous with 1st derivative – see note 2 below) nature of the weather, one way to observe conditions is to consider that conditions exist until they change. This implies that we can continue using a previous value until a new value is measured, e.g., visibility. Visibility isn’t going to change from 7 miles to 10 feet back to 7 miles without something happening to explain it and an interim decrease in visibility is recorded.</p></li>
+<li><p>Columns composed entirely of null values will be removed.</p></li>
+<li><p>Remove columns that are not directly being used for analysis</p></li>
+<li><p>For precipitation NULL values, replace them with 0s. (see note 3)</p></li>
+<li><p>Visualize data and identify trends and outliers.</p></li>
+</ol>
+<li>Create models for each variable.</li>
+<ol style="list-style-type: lower-alpha">
+<li><p>Use a variety of models to compare data for each climate zone.</p></li>
+<li><p>Linear regression</p></li>
+<ol start="2" style="list-style-type: lower-roman">
+<li><p>Multivariate regression</p></li>
+<li><p>Spline with varying degrees of freedom</p></li>
+<ol>
+<li><p>Monthly – 11 knots + cubic natural spline (3) - 14 df</p></li>
+<li><p>10-day – 36 knots + cubic natural spline (3) - 39 df</p></li>
+<li><p>Daily – 366 knots + cubic natural spline (3) - 369 df</p></li>
+<ol start="1" style="list-style-type: lower-alpha">
+<li><p>Identify times of year for each variable that are statistically different from the 10-, 20-, and 30-year data average. </p></li>
+<li><p>Utilize summaries across 10-, 20-, and 30-year models to identify times when the models are and are not statistically significant.</p></li>
+<li><p>Identify trend of data for each variable based on the 10-, 20-, and 30-year data.</p></li>
+</ol>
+</ol>
+</ol>
+<li>Perform ANOVA (Analysis of Variance) Tests on the spline models</li>
+<li>Compare ANOVA results and determine which subsets of data performed the best</li>
+<li>Rerun above analysis for different subsection of the data</li>
+<ol start="1" style="list-style-type: lower-alpha">
+<li>Split the datasets into 10-year intervals: 1994-2003, 2004-2013, and 2014-2023</li>
+<li>Generate spline regressions on each dataset in the above determined "best" model output</li>
+<li>Create a linear regression for each Julian Day</li>
+<li>Plot the slopes of the above regressions to determine how each variable is changing by Julian Day over each 10-year data period (see note 4)</li>
+</ol>
+</ol>
+
+**Notes: **
+
+1)	The 14WS uses shorter periods of complete or incomplete data for other products, not OCDSs. 
+
+2)  C<sup>1</sup> is mathematical notation denoting the “smoothness” of a function. It means that given a function, you could take the 1st derivative of it at all points, but the resulting function may not be smooth. Weather is regarded as C<sup>1</sup> smooth for most variables (not precipitation). This means that there are no disjointed variables, but there may be some “sharp” or “abrupt” curves that would not allow a 2nd derivative. An example would be that typically you wouldn’t see dense fog and low cloud cover – then 15 minutes later completely clear conditions, and 15 minutes after that back to dense fog and low cloud cover. That would be disjointed and not smooth. You would expect a gradual improvement or worsening of conditions with time – hence the C<sup>1</sup> assumptions.
+
+3)	Imputing 0s in for NULL precipitation amounts does increase the risk of miscalculating the amount of precipitation received on any given day. However, this risk is limited in impact because it creates a minimum amount received. Thus, we will risk over estimating the precipitation amounts. This forms a conservative basis when looking at precipitation trends.
+
+4)  The initial desire was to use the code from a recent publication that shows promise in climate forecasting to run future forecasts for these sites. However, it was written in MATLAB and there are no simple ways to convert this within the project timeframe to R or Python. Therefore, we will omit this desired portion of the project, but instead use a statistical forecast to determine whether there is utility in either switching or continuing with the current OCDS process.
+
+## Domain 2
+
+<h2>Data Understanding</h2>
+
+### Data Summaries: {.tabset}
+
+#### Robert's Field, OR
+
+```{r krdm_sum}
+summary(krdm_data)
+```
+
+#### Buffalo, NY
+
+```{r kbuf_sum}
+summary(kbuf_data)
+```
+
+#### Topeka, KS
+
+```{r kfoe_sum}
+summary(kfoe_data)
+```
+
+#### Madison, WI
+
+```{r kmsn_sum}
+summary(kmsn_data)
+```
+
+#### Tri-cities Airport, TN
+
+```{r ktri_sum}
+summary(ktri_data)
+```
+
+#### Juneau, AK
+
+```{r pajn_sum}
+summary(pajn_data)
+```
+
+#### El Paso, TX
+
+```{r kelp_sum}
+summary(kelp_data)
+```
+
+#### St George, UT
+
+```{r ksgu_sum}
+summary(ksgu_data)
+```
+
+## Domain 3 {.tabset}
+
+<h2>Data Preparation</h2>
+
+### Handling NULL Values: {.tabset}
+
+We can see the initial NULL counts by column. We will be taking the Julian Day average for each of these values to try to find some statistical relevance for the data we are using.
+
+This turned trickier than planned as we wanted to use 10-year, 20-year and 30-year datasets. In doing so, we separate the data as pre-2004, 2004-2013, and 2014-2023. We will filter the data to find values greater than or equal to 2014, then 2004, then the entire datasets. Each of these will be stored as separate data frames for analysis.
+
+#### Robert's Field, OR {.tabset}
+
+##### Initial Nulls:
+
+```{r}
+colSums(is.na(krdm_data))
+```
+
+##### Removed Columns and Filled-in NULLs {.tabset}
+
+###### 10-year
+
+```{r}
+colSums((is.na(krdm_toKeep10)))
+```
+
+###### 20-year
+
+```{r}
+colSums((is.na(krdm_toKeep20)))
+```
+
+###### 30-year
+
+```{r}
+colSums((is.na(krdm_toKeep30)))
+```
+
+#### Buffalo, NY {.tabset}
+
+##### Initial Nulls:
+
+```{r}
+colSums((is.na(kbuf_data)))
+```
+
+##### Removed Columns and Filled-in NULLs {.tabset}
+
+###### 10-year
+
+```{r}
+colSums((is.na(kbuf_toKeep10)))
+```
+
+###### 20-year
+
+```{r}
+colSums((is.na(kbuf_toKeep20)))
+```
+
+###### 30-year
+
+```{r}
+colSums((is.na(kbuf_toKeep30)))
+```
+
+#### Topeka, KS {.tabset}
+
+##### Initial Nulls:
+
+```{r}
+colSums((is.na(kfoe_data)))
+```
+
+##### Removed Columns and Filled-in NULLs {.tabset}
+
+###### 10-year
+
+```{r}
+colSums((is.na(kfoe_toKeep10)))
+```
+
+###### 20-year
+
+```{r}
+colSums((is.na(kfoe_toKeep20)))
+```
+
+###### 30-year
+
+```{r}
+colSums((is.na(kfoe_toKeep30)))
+```
+
+#### Madison, WI {.tabset}
+
+##### Initial Nulls:
+
+```{r}
+colSums((is.na(kmsn_data)))
+```
+
+##### Removed Columns and Filled-in NULLs {.tabset}
+
+###### 10-year
+
+```{r}
+colSums((is.na(kmsn_toKeep10)))
+```
+
+###### 20-year
+
+```{r}
+colSums((is.na(kmsn_toKeep20)))
+```
+
+###### 30-year
+
+```{r}
+colSums((is.na(kmsn_toKeep30)))
+```
+
+#### Tri-cities Airport, TN {.tabset}
+
+##### Initial Nulls:
+
+```{r}
+colSums((is.na(ktri_data)))
+```
+
+##### Removed Columns and Filled-in NULLs {.tabset}
+
+###### 10-year
+
+```{r}
+colSums((is.na(ktri_toKeep10)))
+```
+
+###### 20-year
+
+```{r}
+colSums((is.na(ktri_toKeep20)))
+```
+
+###### 30-year
+
+```{r}
+colSums((is.na(ktri_toKeep30)))
+```
+
+#### Juneau, AK {.tabset}
+
+##### Initial Nulls:
+
+```{r}
+colSums((is.na(pajn_data)))
+```
+
+##### Removed Columns and Filled-in NULLs {.tabset}
+
+###### 10-year
+
+```{r}
+colSums((is.na(pajn_toKeep10)))
+```
+
+###### 20-year
+
+```{r}
+colSums((is.na(pajn_toKeep20)))
+```
+
+###### 30-year
+
+```{r}
+colSums((is.na(pajn_toKeep30)))
+```
+
+#### El Paso, TX {.tabset}
+
+##### Initial Nulls:
+
+```{r}
+colSums((is.na(kelp_data)))
+```
+
+##### Removed Columns and Filled-in NULLs {.tabset}
+
+###### 10-year
+
+```{r}
+colSums((is.na(kelp_toKeep10)))
+```
+
+###### 20-year
+
+```{r}
+colSums((is.na(kelp_toKeep20)))
+```
+
+###### 30-year
+
+```{r}
+colSums((is.na(kelp_toKeep30)))
+```
+
+#### St George, UT {.tabset}
+
+##### Initial Nulls:
+
+```{r}
+colSums((is.na(ksgu_data)))
+```
+
+##### Removed Columns and Filled-in NULLs {.tabset}
+
+###### 10-year
+
+```{r}
+colSums((is.na(ksgu_toKeep10)))
+```
+
+###### 20-year
+
+```{r}
+colSums((is.na(ksgu_toKeep20)))
+```
+
+###### 30-year
+
+```{r}
+colSums((is.na(ksgu_toKeep30)))
+```
+
+### Data Interrogation and Modeling
+
+We can interrogate the data in many ways. The following are ways we will do this:
+
+-   Plot desired variable averages for each timespan and visualize the ANOVA results,
+-   Use "spline" and get good estimations of the variables by timespan and then run and visualize ANOVA results,
+-   Run "spline" on the entire dataset by timespan to see if there a reasonable approximation could be determined for the data
+
+#### Composite Splines {.tabset}
+
+For each of the below plots, the following applies:
+
+- Blue solid line     - 10-year dataset spline
+- Red dashed lines    - 10-year dataset 95% confidence intervals
+- Orange solid line   - 20-year dataset spline
+- Brown dashed lines  - 20-year dataset 95% confidence intervals
+- Green solid line    - 30-year dataset spline
+- Purple dashed lines - 30-year dataset 95% confidence intervals
+
+##### Robert's Field, OR {.tabset}
+
+###### Temperature
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/TEMP Composite.png)
+
+###### Dewpoint Temperature
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/DP Composite.png)
+
+###### Wind Direction
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/WD Composite.png)
+
+###### Wind Speed
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/WS Composite.png)
+
+###### Wind Gust Speed
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/WG Composite.png)
+
+###### Average Cloud Ceiling Height
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/CIG Composite.png)
+
+###### Average Visibility
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/VIS Composite.png)
+
+###### Average Cloud Cover
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/CC Composite.png)
+
+###### Average Altimeter Setting
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/ALT Composite.png)
+
+###### Average Precipitation
+
+![10, 20, 30-year Precipitation Comparison by Rain event](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/PRECIP Composite.png)
+
+##### Buffalo, NY {.tabset}
+
+###### Temperature
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/TEMP Composite.png)
+
+###### Dewpoint Temperature
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/DP Composite.png)
+
+###### Wind Direction
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/WD Composite.png)
+
+###### Wind Speed
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/WS Composite.png)
+
+###### Wind Gust Speed
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/WG Composite.png)
+
+###### Average Cloud Ceiling Height
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/CIG Composite.png)
+
+###### Average Visibility
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/VIS Composite.png)
+
+###### Average Cloud Cover
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/CC Composite.png)
+
+###### Average Altimeter Setting
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/ALT Composite.png)
+
+###### Average Precipitation
+
+![10, 20, 30-year Precipitation Comparison by Rain event](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/PRECIP Composite.png)
+
+
+##### Topeka, KS {.tabset}
+
+###### Temperature
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/TEMP Composite.png)
+
+###### Dewpoint Temperature
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/DP Composite.png)
+
+###### Wind Direction
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/WD Composite.png)
+
+###### Wind Speed
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/WS Composite.png)
+
+###### Wind Gust Speed
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/WG Composite.png)
+
+###### Average Cloud Ceiling Height
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/CIG Composite.png)
+
+###### Average Visibility
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/VIS Composite.png)
+
+###### Average Cloud Cover
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/CC Composite.png)
+
+###### Average Altimeter Setting
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/ALT Composite.png)
+
+###### Average Precipitation
+
+![10, 20, 30-year Precipitation Comparison by Rain event](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/PRECIP Composite.png)
+
+
+##### Madison, WI {.tabset}
+
+###### Temperature
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/TEMP Composite.png)
+
+###### Dewpoint Temperature
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/DP Composite.png)
+
+###### Wind Direction
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/WD Composite.png)
+
+###### Wind Speed
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/WS Composite.png)
+
+###### Wind Gust Speed
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/WG Composite.png)
+
+###### Average Cloud Ceiling Height
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/CIG Composite.png)
+
+###### Average Visibility
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/VIS Composite.png)
+
+###### Average Cloud Cover
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/CC Composite.png)
+
+###### Average Altimeter Setting
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/ALT Composite.png)
+
+###### Average Precipitation
+
+![10, 20, 30-year Precipitation Comparison by Rain event](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/PRECIP Composite.png)
+
+
+##### Tri-cities Airport, TN {.tabset}
+
+###### Temperature
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/TEMP Composite.png)
+
+###### Dewpoint Temperature
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/DP Composite.png)
+
+###### Wind Direction
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/WD Composite.png)
+
+###### Wind Speed
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/WS Composite.png)
+
+###### Wind Gust Speed
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/WG Composite.png)
+
+###### Average Cloud Ceiling Height
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/CIG Composite.png)
+
+###### Average Visibility
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/VIS Composite.png)
+
+###### Average Cloud Cover
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/CC Composite.png)
+
+###### Average Altimeter Setting
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/ALT Composite.png)
+
+###### Average Precipitation
+
+![10, 20, 30-year Precipitation Comparison by Rain event](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/PRECIP Composite.png)
+
+
+##### Juneau, AK {.tabset}
+
+###### Temperature
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/TEMP Composite.png)
+
+###### Dewpoint Temperature
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/DP Composite.png)
+
+###### Wind Direction
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/WD Composite.png)
+
+###### Wind Speed
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/WS Composite.png)
+
+###### Wind Gust Speed
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/WG Composite.png)
+
+###### Average Cloud Ceiling Height
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/CIG Composite.png)
+
+###### Average Visibility
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/VIS Composite.png)
+
+###### Average Cloud Cover
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/CC Composite.png)
+
+###### Average Altimeter Setting
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/ALT Composite.png)
+
+###### Average Precipitation
+
+![10, 20, 30-year Precipitation Comparison by Rain event](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/PRECIP Composite.png)
+
+
+##### El Paso, TX {.tabset}
+
+###### Temperature
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/TEMP Composite.png)
+
+###### Dewpoint Temperature
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/DP Composite.png)
+
+###### Wind Direction
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/WD Composite.png)
+
+###### Wind Speed
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/WS Composite.png)
+
+###### Wind Gust Speed
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/WG Composite.png)
+
+###### Average Cloud Ceiling Height
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/CIG Composite.png)
+
+###### Average Visibility
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/VIS Composite.png)
+
+###### Average Cloud Cover
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/CC Composite.png)
+
+###### Average Altimeter Setting
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/ALT Composite.png)
+
+###### Average Precipitation
+
+![10, 20, 30-year Precipitation Comparison by Rain event](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/PRECIP Composite.png)
+
+
+##### St George {.tabset}
+
+###### Temperature
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/TEMP Composite.png)
+
+###### Dewpoint Temperature
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/DP Composite.png)
+
+###### Wind Direction
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/WD Composite.png)
+
+###### Wind Speed
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/WS Composite.png)
+
+###### Wind Gust Speed
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/WG Composite.png)
+
+###### Average Cloud Ceiling Height
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/CIG Composite.png)
+
+###### Average Visibility
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/VIS Composite.png)
+
+###### Average Cloud Cover
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/CC Composite.png)
+
+###### Average Altimeter Setting
+
+![10, 20, 30-year 10-day avg spline composite](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/ALT Composite.png)
+
+###### Average Precipitation
+
+![10, 20, 30-year Precipitation Comparison by Rain event](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/PRECIP Composite.png)
+
+
+## Domain 4 {.tabset}
+
+<h2>Data Visualization</h2>
+
+### ANOVA Tests {.tabset}
+
+Summary - the most common, overall significance is the comparison between the Monthly and the 10-day splines. There were a couple outliers, but generally, this shows the highest, consistent level of significance and we can focus on comparing these two outputs.
+
+#### KRDM {.tabset}
+
+##### Temperature
+
+```{r}
+anova(krdm_t10_spline_d,krdm_t10_spline_10d)
+```
+
+```{r}
+anova(krdm_t10_spline_d,krdm_t10_spline_m)
+```
+
+```{r}
+anova(krdm_t10_spline_m,krdm_t10_spline_10d) # this one
+```
+
+```{r}
+anova(krdm_t20_spline_d,krdm_t20_spline_10d)
+```
+
+```{r}
+anova(krdm_t20_spline_d,krdm_t20_spline_m)
+```
+
+```{r}
+anova(krdm_t20_spline_m,krdm_t20_spline_10d) # this one
+```
+
+```{r}
+anova(krdm_t30_spline_d,krdm_t30_spline_10d)
+```
+
+```{r}
+anova(krdm_t30_spline_d,krdm_t30_spline_m)
+```
+
+```{r}
+anova(krdm_t30_spline_m,krdm_t30_spline_10d) # this one
+```
+
+##### Dewpoint Temperature
+
+```{r}
+anova(krdm_dp10_spline_d,krdm_dp10_spline_10d) 
+```
+
+```{r}
+anova(krdm_dp10_spline_d,krdm_dp10_spline_m)
+```
+
+```{r}
+anova(krdm_dp10_spline_m,krdm_dp10_spline_10d) # this one
+```
+
+```{r}
+anova(krdm_dp20_spline_d,krdm_dp20_spline_10d)
+```
+
+```{r}
+anova(krdm_dp20_spline_d,krdm_dp20_spline_m)
+```
+
+```{r}
+anova(krdm_dp20_spline_m,krdm_dp20_spline_10d) # this one
+```
+
+```{r}
+anova(krdm_dp30_spline_d,krdm_dp30_spline_10d)
+```
+
+```{r}
+anova(krdm_dp30_spline_d,krdm_dp30_spline_m)
+```
+
+```{r}
+anova(krdm_dp30_spline_m,krdm_dp30_spline_10d) # this one
+```
+
+##### Wind Direction
+
+```{r}
+anova(krdm_wd10_spline_d,krdm_wd10_spline_10d)
+```
+
+```{r}
+anova(krdm_wd10_spline_d,krdm_wd10_spline_m)
+```
+
+```{r}
+anova(krdm_wd10_spline_m,krdm_wd10_spline_10d) # this one
+```
+
+```{r}
+anova(krdm_wd20_spline_d,krdm_wd20_spline_10d)
+```
+
+```{r}
+anova(krdm_wd20_spline_d,krdm_wd20_spline_m)
+```
+
+```{r}
+anova(krdm_wd20_spline_m,krdm_wd20_spline_10d) # this one
+```
+
+```{r}
+anova(krdm_wd30_spline_d,krdm_wd30_spline_10d)
+```
+
+```{r}
+anova(krdm_wd30_spline_d,krdm_wd30_spline_m)
+```
+
+```{r}
+anova(krdm_wd30_spline_m,krdm_wd30_spline_10d) # this one
+```
+
+##### Wind Speed
+
+```{r}
+anova(krdm_ws10_spline_d,krdm_ws10_spline_10d)
+```
+
+```{r}
+anova(krdm_ws10_spline_d,krdm_ws10_spline_m)
+```
+
+```{r}
+anova(krdm_ws10_spline_m,krdm_ws10_spline_10d) # this one
+```
+
+```{r}
+anova(krdm_ws20_spline_d,krdm_ws20_spline_10d)
+```
+
+```{r}
+anova(krdm_ws20_spline_d,krdm_ws20_spline_m)
+```
+
+```{r}
+anova(krdm_ws20_spline_m,krdm_ws20_spline_10d) # this one
+```
+
+```{r}
+anova(krdm_ws30_spline_d,krdm_ws30_spline_10d)
+```
+
+```{r}
+anova(krdm_ws30_spline_d,krdm_ws30_spline_m)
+```
+
+```{r}
+anova(krdm_ws30_spline_m,krdm_ws30_spline_10d) # this one
+```
+
+##### Wind Gust Speed
+
+```{r}
+anova(krdm_wg10_spline_d,krdm_wg10_spline_10d)
+```
+
+```{r}
+anova(krdm_wg10_spline_d,krdm_wg10_spline_m)
+```
+
+```{r}
+anova(krdm_wg10_spline_m,krdm_wg10_spline_10d) # this one
+```
+
+```{r}
+anova(krdm_wg20_spline_d,krdm_wg20_spline_10d)
+```
+
+```{r}
+anova(krdm_wg20_spline_d,krdm_wg20_spline_m)
+```
+
+```{r}
+anova(krdm_wg20_spline_m,krdm_wg20_spline_10d) # this one
+```
+
+```{r}
+anova(krdm_wg30_spline_d,krdm_wg30_spline_10d)
+```
+
+```{r}
+anova(krdm_wg30_spline_d,krdm_wg30_spline_m)
+```
+
+```{r}
+anova(krdm_wg30_spline_m,krdm_wg30_spline_10d) # this one
+```
+
+##### Average Cloud Ceiling Height
+
+```{r}
+anova(krdm_cig10_spline_d,krdm_cig10_spline_10d)
+```
+
+```{r}
+anova(krdm_cig10_spline_d,krdm_cig10_spline_m)
+```
+
+```{r}
+anova(krdm_cig10_spline_m,krdm_cig10_spline_10d) # this one
+```
+
+```{r}
+anova(krdm_cig20_spline_d,krdm_cig20_spline_10d)
+```
+
+```{r}
+anova(krdm_cig20_spline_d,krdm_cig20_spline_m)
+```
+
+```{r}
+anova(krdm_cig20_spline_m,krdm_cig20_spline_10d) # this one
+```
+
+```{r}
+anova(krdm_cig30_spline_d,krdm_cig30_spline_10d)
+```
+
+```{r}
+anova(krdm_cig30_spline_d,krdm_cig30_spline_m)
+```
+
+```{r}
+anova(krdm_cig30_spline_m,krdm_cig30_spline_10d) # this one
+```
+
+##### Average Visibility
+
+```{r}
+anova(krdm_vis10_spline_d,krdm_vis10_spline_10d)
+```
+
+```{r}
+anova(krdm_vis10_spline_d,krdm_vis10_spline_m)
+```
+
+```{r}
+anova(krdm_vis10_spline_m,krdm_vis10_spline_10d) # this one
+```
+
+```{r}
+anova(krdm_vis20_spline_d,krdm_vis20_spline_10d)
+```
+
+```{r}
+anova(krdm_vis20_spline_d,krdm_vis20_spline_m)
+```
+
+```{r}
+anova(krdm_vis20_spline_m,krdm_vis20_spline_10d) 
+```
+
+```{r}
+anova(krdm_vis30_spline_d,krdm_vis30_spline_10d)
+```
+
+```{r}
+anova(krdm_vis30_spline_d,krdm_vis30_spline_m)
+```
+
+```{r}
+anova(krdm_vis30_spline_m,krdm_vis30_spline_10d)
+```
+
+##### Average Cloud Cover
+
+```{r}
+anova(krdm_cc10_spline_d,krdm_cc10_spline_10d)
+```
+
+```{r}
+anova(krdm_cc10_spline_d,krdm_cc10_spline_m)
+```
+
+```{r}
+anova(krdm_cc10_spline_m,krdm_cc10_spline_10d) # this one
+```
+
+```{r}
+anova(krdm_cc20_spline_d,krdm_cc20_spline_10d)
+```
+
+```{r}
+anova(krdm_cc20_spline_d,krdm_cc20_spline_m)
+```
+
+```{r}
+anova(krdm_cc20_spline_m,krdm_cc20_spline_10d) # this one
+```
+
+```{r}
+anova(krdm_cc30_spline_d,krdm_cc30_spline_10d)
+```
+
+```{r}
+anova(krdm_cc30_spline_d,krdm_cc30_spline_m)
+```
+
+```{r}
+anova(krdm_cc30_spline_m,krdm_cc30_spline_10d) # this one
+```
+
+##### Average Altimeter Setting
+
+```{r}
+anova(krdm_alt10_spline_d,krdm_alt10_spline_10d)
+```
+
+```{r}
+anova(krdm_alt10_spline_d,krdm_alt10_spline_m)
+```
+
+```{r}
+anova(krdm_alt10_spline_m,krdm_alt10_spline_10d) # this one
+```
+
+```{r}
+anova(krdm_alt20_spline_d,krdm_alt20_spline_10d)
+```
+
+```{r}
+anova(krdm_alt20_spline_d,krdm_alt20_spline_m)
+```
+
+```{r}
+anova(krdm_alt20_spline_m,krdm_alt20_spline_10d) # this one
+```
+
+```{r}
+anova(krdm_alt30_spline_d,krdm_alt30_spline_10d)
+```
+
+```{r}
+anova(krdm_alt30_spline_d,krdm_alt30_spline_m)
+```
+
+```{r}
+anova(krdm_alt30_spline_m,krdm_alt30_spline_10d) # this one
+```
+
+#### KBUF {.tabset}
+
+##### Temperature
+
+```{r}
+anova(kbuf_t10_spline_d,kbuf_t10_spline_10d)
+```
+
+```{r}
+anova(kbuf_t10_spline_d,kbuf_t10_spline_m)
+```
+
+```{r}
+anova(kbuf_t10_spline_m,kbuf_t10_spline_10d) # this one
+```
+
+```{r}
+anova(kbuf_t20_spline_d,kbuf_t20_spline_10d)
+```
+
+```{r}
+anova(kbuf_t20_spline_d,kbuf_t20_spline_m)
+```
+
+```{r}
+anova(kbuf_t20_spline_m,kbuf_t20_spline_10d) # this one
+```
+
+```{r}
+anova(kbuf_t30_spline_d,kbuf_t30_spline_10d)
+```
+
+```{r}
+anova(kbuf_t30_spline_d,kbuf_t30_spline_m)
+```
+
+```{r}
+anova(kbuf_t30_spline_m,kbuf_t30_spline_10d) # this one
+```
+
+##### Dewpoint Temperature
+
+```{r}
+anova(kbuf_dp10_spline_d,kbuf_dp10_spline_10d) 
+```
+
+```{r}
+anova(kbuf_dp10_spline_d,kbuf_dp10_spline_m)
+```
+
+```{r}
+anova(kbuf_dp10_spline_m,kbuf_dp10_spline_10d) # this one
+```
+
+```{r}
+anova(kbuf_dp20_spline_d,kbuf_dp20_spline_10d)
+```
+
+```{r}
+anova(kbuf_dp20_spline_d,kbuf_dp20_spline_m)
+```
+
+```{r}
+anova(kbuf_dp20_spline_m,kbuf_dp20_spline_10d) # this one
+```
+
+```{r}
+anova(kbuf_dp30_spline_d,kbuf_dp30_spline_10d)
+```
+
+```{r}
+anova(kbuf_dp30_spline_d,kbuf_dp30_spline_m)
+```
+
+```{r}
+anova(kbuf_dp30_spline_m,kbuf_dp30_spline_10d) # this one
+```
+
+##### Wind Direction
+
+```{r}
+anova(kbuf_wd10_spline_d,kbuf_wd10_spline_10d)
+```
+
+```{r}
+anova(kbuf_wd10_spline_d,kbuf_wd10_spline_m)
+```
+
+```{r}
+anova(kbuf_wd10_spline_m,kbuf_wd10_spline_10d) # this one
+```
+
+```{r}
+anova(kbuf_wd20_spline_d,kbuf_wd20_spline_10d)
+```
+
+```{r}
+anova(kbuf_wd20_spline_d,kbuf_wd20_spline_m)
+```
+
+```{r}
+anova(kbuf_wd20_spline_m,kbuf_wd20_spline_10d)
+```
+
+```{r}
+anova(kbuf_wd30_spline_d,kbuf_wd30_spline_10d)
+```
+
+```{r}
+anova(kbuf_wd30_spline_d,kbuf_wd30_spline_m)
+```
+
+```{r}
+anova(kbuf_wd30_spline_m,kbuf_wd30_spline_10d)
+```
+
+##### Wind Speed
+
+```{r}
+anova(kbuf_ws10_spline_d,kbuf_ws10_spline_10d)
+```
+
+```{r}
+anova(kbuf_ws10_spline_d,kbuf_ws10_spline_m)
+```
+
+```{r}
+anova(kbuf_ws10_spline_m,kbuf_ws10_spline_10d) # this one
+```
+
+```{r}
+anova(kbuf_ws20_spline_d,kbuf_ws20_spline_10d)
+```
+
+```{r}
+anova(kbuf_ws20_spline_d,kbuf_ws20_spline_m)
+```
+
+```{r}
+anova(kbuf_ws20_spline_m,kbuf_ws20_spline_10d) # this one
+```
+
+```{r}
+anova(kbuf_ws30_spline_d,kbuf_ws30_spline_10d)
+```
+
+```{r}
+anova(kbuf_ws30_spline_d,kbuf_ws30_spline_m)
+```
+
+```{r}
+anova(kbuf_ws30_spline_m,kbuf_ws30_spline_10d)
+```
+
+##### Wind Gust Speed
+
+```{r}
+anova(kbuf_wg10_spline_d,kbuf_wg10_spline_10d)
+```
+
+```{r}
+anova(kbuf_wg10_spline_d,kbuf_wg10_spline_m)
+```
+
+```{r}
+anova(kbuf_wg10_spline_m,kbuf_wg10_spline_10d) # this one
+```
+
+```{r}
+anova(kbuf_wg20_spline_d,kbuf_wg20_spline_10d)
+```
+
+```{r}
+anova(kbuf_wg20_spline_d,kbuf_wg20_spline_m)
+```
+
+```{r}
+anova(kbuf_wg20_spline_m,kbuf_wg20_spline_10d) # this one
+```
+
+```{r}
+anova(kbuf_wg30_spline_d,kbuf_wg30_spline_10d)
+```
+
+```{r}
+anova(kbuf_wg30_spline_d,kbuf_wg30_spline_m)
+```
+
+```{r}
+anova(kbuf_wg30_spline_m,kbuf_wg30_spline_10d) # this one
+```
+
+##### Average Cloud Ceiling Height
+
+```{r}
+anova(kbuf_cig10_spline_d,kbuf_cig10_spline_10d)
+```
+
+```{r}
+anova(kbuf_cig10_spline_d,kbuf_cig10_spline_m)
+```
+
+```{r}
+anova(kbuf_cig10_spline_m,kbuf_cig10_spline_10d) # this one
+```
+
+```{r}
+anova(kbuf_cig20_spline_d,kbuf_cig20_spline_10d)
+```
+
+```{r}
+anova(kbuf_cig20_spline_d,kbuf_cig20_spline_m)
+```
+
+```{r}
+anova(kbuf_cig20_spline_m,kbuf_cig20_spline_10d) # this one
+```
+
+```{r}
+anova(kbuf_cig30_spline_d,kbuf_cig30_spline_10d)
+```
+
+```{r}
+anova(kbuf_cig30_spline_d,kbuf_cig30_spline_m)
+```
+
+```{r}
+anova(kbuf_cig30_spline_m,kbuf_cig30_spline_10d) # this one
+```
+
+##### Average Visibility
+
+```{r}
+anova(kbuf_vis10_spline_d,kbuf_vis10_spline_10d)
+```
+
+```{r}
+anova(kbuf_vis10_spline_d,kbuf_vis10_spline_m)
+```
+
+```{r}
+anova(kbuf_vis10_spline_m,kbuf_vis10_spline_10d)
+```
+
+```{r}
+anova(kbuf_vis20_spline_d,kbuf_vis20_spline_10d)
+```
+
+```{r}
+anova(kbuf_vis20_spline_d,kbuf_vis20_spline_m)
+```
+
+```{r}
+anova(kbuf_vis20_spline_m,kbuf_vis20_spline_10d) # this one
+```
+
+```{r}
+anova(kbuf_vis30_spline_d,kbuf_vis30_spline_10d)
+```
+
+```{r}
+anova(kbuf_vis30_spline_d,kbuf_vis30_spline_m)
+```
+
+```{r}
+anova(kbuf_vis30_spline_m,kbuf_vis30_spline_10d) # this one
+```
+
+##### Average Cloud Cover
+
+```{r}
+anova(kbuf_cc10_spline_d,kbuf_cc10_spline_10d)
+```
+
+```{r}
+anova(kbuf_cc10_spline_d,kbuf_cc10_spline_m)
+```
+
+```{r}
+anova(kbuf_cc10_spline_m,kbuf_cc10_spline_10d) # this one
+```
+
+```{r}
+anova(kbuf_cc20_spline_d,kbuf_cc20_spline_10d)
+```
+
+```{r}
+anova(kbuf_cc20_spline_d,kbuf_cc20_spline_m)
+```
+
+```{r}
+anova(kbuf_cc20_spline_m,kbuf_cc20_spline_10d) # this one
+```
+
+```{r}
+anova(kbuf_cc30_spline_d,kbuf_cc30_spline_10d)
+```
+
+```{r}
+anova(kbuf_cc30_spline_d,kbuf_cc30_spline_m)
+```
+
+```{r}
+anova(kbuf_cc30_spline_m,kbuf_cc30_spline_10d) # this one
+```
+
+##### Average Altimeter Setting
+
+```{r}
+anova(kbuf_alt10_spline_d,kbuf_alt10_spline_10d)
+```
+
+```{r}
+anova(kbuf_alt10_spline_d,kbuf_alt10_spline_m)
+```
+
+```{r}
+anova(kbuf_alt10_spline_m,kbuf_alt10_spline_10d) # this one
+```
+
+```{r}
+anova(kbuf_alt20_spline_d,kbuf_alt20_spline_10d)
+```
+
+```{r}
+anova(kbuf_alt20_spline_d,kbuf_alt20_spline_m)
+```
+
+```{r}
+anova(kbuf_alt20_spline_m,kbuf_alt20_spline_10d) # this one
+```
+
+```{r}
+anova(kbuf_alt30_spline_d,kbuf_alt30_spline_10d)
+```
+
+```{r}
+anova(kbuf_alt30_spline_d,kbuf_alt30_spline_m)
+```
+
+```{r}
+anova(kbuf_alt30_spline_m,kbuf_alt30_spline_10d) # this one
+```
+
+#### KFOE {.tabset}
+
+##### Temperature
+
+```{r}
+anova(kfoe_t10_spline_d,kfoe_t10_spline_10d)
+```
+
+```{r}
+anova(kfoe_t10_spline_d,kfoe_t10_spline_m)
+```
+
+```{r}
+anova(kfoe_t10_spline_m,kfoe_t10_spline_10d) # this one
+```
+
+```{r}
+anova(kfoe_t20_spline_d,kfoe_t20_spline_10d)
+```
+
+```{r}
+anova(kfoe_t20_spline_d,kfoe_t20_spline_m)
+```
+
+```{r}
+anova(kfoe_t20_spline_m,kfoe_t20_spline_10d) # this one
+```
+
+```{r}
+anova(kfoe_t30_spline_d,kfoe_t30_spline_10d)
+```
+
+```{r}
+anova(kfoe_t30_spline_d,kfoe_t30_spline_m)
+```
+
+```{r}
+anova(kfoe_t30_spline_m,kfoe_t30_spline_10d) # this one
+```
+
+##### Dewpoint Temperature
+
+```{r}
+anova(kfoe_dp10_spline_d,kfoe_dp10_spline_10d) 
+```
+
+```{r}
+anova(kfoe_dp10_spline_d,kfoe_dp10_spline_m)
+```
+
+```{r}
+anova(kfoe_dp10_spline_m,kfoe_dp10_spline_10d) # this one
+```
+
+```{r}
+anova(kfoe_dp20_spline_d,kfoe_dp20_spline_10d)
+```
+
+```{r}
+anova(kfoe_dp20_spline_d,kfoe_dp20_spline_m)
+```
+
+```{r}
+anova(kfoe_dp20_spline_m,kfoe_dp20_spline_10d) # this one
+```
+
+```{r}
+anova(kfoe_dp30_spline_d,kfoe_dp30_spline_10d)
+```
+
+```{r}
+anova(kfoe_dp30_spline_d,kfoe_dp30_spline_m)
+```
+
+```{r}
+anova(kfoe_dp30_spline_m,kfoe_dp30_spline_10d) # this one
+```
+
+##### Wind Direction
+
+```{r}
+anova(kfoe_wd10_spline_d,kfoe_wd10_spline_10d)
+```
+
+```{r}
+anova(kfoe_wd10_spline_d,kfoe_wd10_spline_m)
+```
+
+```{r}
+anova(kfoe_wd10_spline_m,kfoe_wd10_spline_10d) # this one
+```
+
+```{r}
+anova(kfoe_wd20_spline_d,kfoe_wd20_spline_10d)
+```
+
+```{r}
+anova(kfoe_wd20_spline_d,kfoe_wd20_spline_m)
+```
+
+```{r}
+anova(kfoe_wd20_spline_m,kfoe_wd20_spline_10d) # this one
+```
+
+```{r}
+anova(kfoe_wd30_spline_d,kfoe_wd30_spline_10d)
+```
+
+```{r}
+anova(kfoe_wd30_spline_d,kfoe_wd30_spline_m)
+```
+
+```{r}
+anova(kfoe_wd30_spline_m,kfoe_wd30_spline_10d) # this one
+```
+
+##### Wind Speed
+
+```{r}
+anova(kfoe_ws10_spline_d,kfoe_ws10_spline_10d)
+```
+
+```{r}
+anova(kfoe_ws10_spline_d,kfoe_ws10_spline_m)
+```
+
+```{r}
+anova(kfoe_ws10_spline_m,kfoe_ws10_spline_10d) # this one
+```
+
+```{r}
+anova(kfoe_ws20_spline_d,kfoe_ws20_spline_10d)
+```
+
+```{r}
+anova(kfoe_ws20_spline_d,kfoe_ws20_spline_m)
+```
+
+```{r}
+anova(kfoe_ws20_spline_m,kfoe_ws20_spline_10d) # this one
+```
+
+```{r}
+anova(kfoe_ws30_spline_d,kfoe_ws30_spline_10d)
+```
+
+```{r}
+anova(kfoe_ws30_spline_d,kfoe_ws30_spline_m)
+```
+
+```{r}
+anova(kfoe_ws30_spline_m,kfoe_ws30_spline_10d) # this one
+```
+
+##### Wind Gust Speed
+
+```{r}
+anova(kfoe_wg10_spline_d,kfoe_wg10_spline_10d)
+```
+
+```{r}
+anova(kfoe_wg10_spline_d,kfoe_wg10_spline_m)
+```
+
+```{r}
+anova(kfoe_wg10_spline_m,kfoe_wg10_spline_10d) # this one
+```
+
+```{r}
+anova(kfoe_wg20_spline_d,kfoe_wg20_spline_10d)
+```
+
+```{r}
+anova(kfoe_wg20_spline_d,kfoe_wg20_spline_m)
+```
+
+```{r}
+anova(kfoe_wg20_spline_m,kfoe_wg20_spline_10d) # this one
+```
+
+```{r}
+anova(kfoe_wg30_spline_d,kfoe_wg30_spline_10d)
+```
+
+```{r}
+anova(kfoe_wg30_spline_d,kfoe_wg30_spline_m)
+```
+
+```{r}
+anova(kfoe_wg30_spline_m,kfoe_wg30_spline_10d) # this one
+```
+
+##### Average Cloud Ceiling Height
+
+```{r}
+anova(kfoe_cig10_spline_d,kfoe_cig10_spline_10d)
+```
+
+```{r}
+anova(kfoe_cig10_spline_d,kfoe_cig10_spline_m)
+```
+
+```{r}
+anova(kfoe_cig10_spline_m,kfoe_cig10_spline_10d) # this one
+```
+
+```{r}
+anova(kfoe_cig20_spline_d,kfoe_cig20_spline_10d)
+```
+
+```{r}
+anova(kfoe_cig20_spline_d,kfoe_cig20_spline_m)
+```
+
+```{r}
+anova(kfoe_cig20_spline_m,kfoe_cig20_spline_10d) # this one
+```
+
+```{r}
+anova(kfoe_cig30_spline_d,kfoe_cig30_spline_10d)
+```
+
+```{r}
+anova(kfoe_cig30_spline_d,kfoe_cig30_spline_m)
+```
+
+```{r}
+anova(kfoe_cig30_spline_m,kfoe_cig30_spline_10d) # this one
+```
+
+##### Average Visibility
+
+```{r}
+anova(kfoe_vis10_spline_d,kfoe_vis10_spline_10d)
+```
+
+```{r}
+anova(kfoe_vis10_spline_d,kfoe_vis10_spline_m)
+```
+
+```{r}
+anova(kfoe_vis10_spline_m,kfoe_vis10_spline_10d) # this one
+```
+
+```{r}
+anova(kfoe_vis20_spline_d,kfoe_vis20_spline_10d)
+```
+
+```{r}
+anova(kfoe_vis20_spline_d,kfoe_vis20_spline_m)
+```
+
+```{r}
+anova(kfoe_vis20_spline_m,kfoe_vis20_spline_10d) # this one
+```
+
+```{r}
+anova(kfoe_vis30_spline_d,kfoe_vis30_spline_10d)
+```
+
+```{r}
+anova(kfoe_vis30_spline_d,kfoe_vis30_spline_m)
+```
+
+```{r}
+anova(kfoe_vis30_spline_m,kfoe_vis30_spline_10d) # this one
+```
+
+##### Average Cloud Cover
+
+```{r}
+anova(kfoe_cc10_spline_d,kfoe_cc10_spline_10d)
+```
+
+```{r}
+anova(kfoe_cc10_spline_d,kfoe_cc10_spline_m)
+```
+
+```{r}
+anova(kfoe_cc10_spline_m,kfoe_cc10_spline_10d) # this one
+```
+
+```{r}
+anova(kfoe_cc20_spline_d,kfoe_cc20_spline_10d)
+```
+
+```{r}
+anova(kfoe_cc20_spline_d,kfoe_cc20_spline_m)
+```
+
+```{r}
+anova(kfoe_cc20_spline_m,kfoe_cc20_spline_10d) # this one
+```
+
+```{r}
+anova(kfoe_cc30_spline_d,kfoe_cc30_spline_10d)
+```
+
+```{r}
+anova(kfoe_cc30_spline_d,kfoe_cc30_spline_m)
+```
+
+```{r}
+anova(kfoe_cc30_spline_m,kfoe_cc30_spline_10d) # this one
+```
+
+##### Average Altimeter Setting
+
+```{r}
+anova(kfoe_alt10_spline_d,kfoe_alt10_spline_10d)
+```
+
+```{r}
+anova(kfoe_alt10_spline_d,kfoe_alt10_spline_m)
+```
+
+```{r}
+anova(kfoe_alt10_spline_m,kfoe_alt10_spline_10d) # this one
+```
+
+```{r}
+anova(kfoe_alt20_spline_d,kfoe_alt20_spline_10d)
+```
+
+```{r}
+anova(kfoe_alt20_spline_d,kfoe_alt20_spline_m)
+```
+
+```{r}
+anova(kfoe_alt20_spline_m,kfoe_alt20_spline_10d) # this one
+```
+
+```{r}
+anova(kfoe_alt30_spline_d,kfoe_alt30_spline_10d)
+```
+
+```{r}
+anova(kfoe_alt30_spline_d,kfoe_alt30_spline_m)
+```
+
+```{r}
+anova(kfoe_alt30_spline_m,kfoe_alt30_spline_10d) # this one
+```
+
+#### KMSN {.tabset}
+
+##### Temperature
+
+```{r}
+anova(kmsn_t10_spline_d,kmsn_t10_spline_10d)
+```
+
+```{r}
+anova(kmsn_t10_spline_d,kmsn_t10_spline_m)
+```
+
+```{r}
+anova(kmsn_t10_spline_m,kmsn_t10_spline_10d) # this one
+```
+
+```{r}
+anova(kmsn_t20_spline_d,kmsn_t20_spline_10d)
+```
+
+```{r}
+anova(kmsn_t20_spline_d,kmsn_t20_spline_m)
+```
+
+```{r}
+anova(kmsn_t20_spline_m,kmsn_t20_spline_10d) # this one
+```
+
+```{r}
+anova(kmsn_t30_spline_d,kmsn_t30_spline_10d)
+```
+
+```{r}
+anova(kmsn_t30_spline_d,kmsn_t30_spline_m)
+```
+
+```{r}
+anova(kmsn_t30_spline_m,kmsn_t30_spline_10d) # this one
+```
+
+##### Dewpoint Temperature
+
+```{r}
+anova(kmsn_dp10_spline_d,kmsn_dp10_spline_10d) 
+```
+
+```{r}
+anova(kmsn_dp10_spline_d,kmsn_dp10_spline_m)
+```
+
+```{r}
+anova(kmsn_dp10_spline_m,kmsn_dp10_spline_10d) # this one
+```
+
+```{r}
+anova(kmsn_dp20_spline_d,kmsn_dp20_spline_10d)
+```
+
+```{r}
+anova(kmsn_dp20_spline_d,kmsn_dp20_spline_m)
+```
+
+```{r}
+anova(kmsn_dp20_spline_m,kmsn_dp20_spline_10d) # this one
+```
+
+```{r}
+anova(kmsn_dp30_spline_d,kmsn_dp30_spline_10d)
+```
+
+```{r}
+anova(kmsn_dp30_spline_d,kmsn_dp30_spline_m)
+```
+
+```{r}
+anova(kmsn_dp30_spline_m,kmsn_dp30_spline_10d) # this one
+```
+
+##### Wind Direction
+
+```{r}
+anova(kmsn_wd10_spline_d,kmsn_wd10_spline_10d)
+```
+
+```{r}
+anova(kmsn_wd10_spline_d,kmsn_wd10_spline_m)
+```
+
+```{r}
+anova(kmsn_wd10_spline_m,kmsn_wd10_spline_10d) # this one
+```
+
+```{r}
+anova(kmsn_wd20_spline_d,kmsn_wd20_spline_10d)
+```
+
+```{r}
+anova(kmsn_wd20_spline_d,kmsn_wd20_spline_m)
+```
+
+```{r}
+anova(kmsn_wd20_spline_m,kmsn_wd20_spline_10d) # this one
+```
+
+```{r}
+anova(kmsn_wd30_spline_d,kmsn_wd30_spline_10d)
+```
+
+```{r}
+anova(kmsn_wd30_spline_d,kmsn_wd30_spline_m)
+```
+
+```{r}
+anova(kmsn_wd30_spline_m,kmsn_wd30_spline_10d) # this one
+```
+
+##### Wind Speed
+
+```{r}
+anova(kmsn_ws10_spline_d,kmsn_ws10_spline_10d)
+```
+
+```{r}
+anova(kmsn_ws10_spline_d,kmsn_ws10_spline_m)
+```
+
+```{r}
+anova(kmsn_ws10_spline_m,kmsn_ws10_spline_10d) # this one
+```
+
+```{r}
+anova(kmsn_ws20_spline_d,kmsn_ws20_spline_10d)
+```
+
+```{r}
+anova(kmsn_ws20_spline_d,kmsn_ws20_spline_m)
+```
+
+```{r}
+anova(kmsn_ws20_spline_m,kmsn_ws20_spline_10d) # this one
+```
+
+```{r}
+anova(kmsn_ws30_spline_d,kmsn_ws30_spline_10d)
+```
+
+```{r}
+anova(kmsn_ws30_spline_d,kmsn_ws30_spline_m)
+```
+
+```{r}
+anova(kmsn_ws30_spline_m,kmsn_ws30_spline_10d) # this one
+```
+
+##### Wind Gust Speed
+
+```{r}
+anova(kmsn_wg10_spline_d,kmsn_wg10_spline_10d)
+```
+
+```{r}
+anova(kmsn_wg10_spline_d,kmsn_wg10_spline_m)
+```
+
+```{r}
+anova(kmsn_wg10_spline_m,kmsn_wg10_spline_10d) # this one
+```
+
+```{r}
+anova(kmsn_wg20_spline_d,kmsn_wg20_spline_10d)
+```
+
+```{r}
+anova(kmsn_wg20_spline_d,kmsn_wg20_spline_m)
+```
+
+```{r}
+anova(kmsn_wg20_spline_m,kmsn_wg20_spline_10d) # this one
+```
+
+```{r}
+anova(kmsn_wg30_spline_d,kmsn_wg30_spline_10d)
+```
+
+```{r}
+anova(kmsn_wg30_spline_d,kmsn_wg30_spline_m)
+```
+
+```{r}
+anova(kmsn_wg30_spline_m,kmsn_wg30_spline_10d) # this one
+```
+
+##### Average Cloud Ceiling Height
+
+```{r}
+anova(kmsn_cig10_spline_d,kmsn_cig10_spline_10d)
+```
+
+```{r}
+anova(kmsn_cig10_spline_d,kmsn_cig10_spline_m)
+```
+
+```{r}
+anova(kmsn_cig10_spline_m,kmsn_cig10_spline_10d) # this one
+```
+
+```{r}
+anova(kmsn_cig20_spline_d,kmsn_cig20_spline_10d)
+```
+
+```{r}
+anova(kmsn_cig20_spline_d,kmsn_cig20_spline_m)
+```
+
+```{r}
+anova(kmsn_cig20_spline_m,kmsn_cig20_spline_10d) # this one
+```
+
+```{r}
+anova(kmsn_cig30_spline_d,kmsn_cig30_spline_10d)
+```
+
+```{r}
+anova(kmsn_cig30_spline_d,kmsn_cig30_spline_m)
+```
+
+```{r}
+anova(kmsn_cig30_spline_m,kmsn_cig30_spline_10d) # this one
+```
+
+##### Average Visibility
+
+```{r}
+anova(kmsn_vis10_spline_d,kmsn_vis10_spline_10d)
+```
+
+```{r}
+anova(kmsn_vis10_spline_d,kmsn_vis10_spline_m)
+```
+
+```{r}
+anova(kmsn_vis10_spline_m,kmsn_vis10_spline_10d) # this one
+```
+
+```{r}
+anova(kmsn_vis20_spline_d,kmsn_vis20_spline_10d)
+```
+
+```{r}
+anova(kmsn_vis20_spline_d,kmsn_vis20_spline_m)  # this one
+```
+
+```{r}
+anova(kmsn_vis20_spline_m,kmsn_vis20_spline_10d) 
+```
+
+```{r}
+anova(kmsn_vis30_spline_d,kmsn_vis30_spline_10d)
+```
+
+```{r}
+anova(kmsn_vis30_spline_d,kmsn_vis30_spline_m)
+```
+
+```{r}
+anova(kmsn_vis30_spline_m,kmsn_vis30_spline_10d) # this one
+```
+
+##### Average Cloud Cover
+
+```{r}
+anova(kmsn_cc10_spline_d,kmsn_cc10_spline_10d)
+```
+
+```{r}
+anova(kmsn_cc10_spline_d,kmsn_cc10_spline_m)
+```
+
+```{r}
+anova(kmsn_cc10_spline_m,kmsn_cc10_spline_10d) # this one
+```
+
+```{r}
+anova(kmsn_cc20_spline_d,kmsn_cc20_spline_10d)
+```
+
+```{r}
+anova(kmsn_cc20_spline_d,kmsn_cc20_spline_m)
+```
+
+```{r}
+anova(kmsn_cc20_spline_m,kmsn_cc20_spline_10d) # this one
+```
+
+```{r}
+anova(kmsn_cc30_spline_d,kmsn_cc30_spline_10d)
+```
+
+```{r}
+anova(kmsn_cc30_spline_d,kmsn_cc30_spline_m)
+```
+
+```{r}
+anova(kmsn_cc30_spline_m,kmsn_cc30_spline_10d) # this one
+```
+
+##### Average Altimeter Setting
+
+```{r}
+anova(kmsn_alt10_spline_d,kmsn_alt10_spline_10d)
+```
+
+```{r}
+anova(kmsn_alt10_spline_d,kmsn_alt10_spline_m)
+```
+
+```{r}
+anova(kmsn_alt10_spline_m,kmsn_alt10_spline_10d) # this one
+```
+
+```{r}
+anova(kmsn_alt20_spline_d,kmsn_alt20_spline_10d)
+```
+
+```{r}
+anova(kmsn_alt20_spline_d,kmsn_alt20_spline_m)
+```
+
+```{r}
+anova(kmsn_alt20_spline_m,kmsn_alt20_spline_10d) # this one
+```
+
+```{r}
+anova(kmsn_alt30_spline_d,kmsn_alt30_spline_10d)
+```
+
+```{r}
+anova(kmsn_alt30_spline_d,kmsn_alt30_spline_m)
+```
+
+```{r}
+anova(kmsn_alt30_spline_m,kmsn_alt30_spline_10d) # this one
+```
+
+#### KTRI {.tabset}
+
+##### Temperature
+
+```{r}
+anova(ktri_t10_spline_d,ktri_t10_spline_10d)
+```
+
+```{r}
+anova(ktri_t10_spline_d,ktri_t10_spline_m)
+```
+
+```{r}
+anova(ktri_t10_spline_m,ktri_t10_spline_10d) # this one
+```
+
+```{r}
+anova(ktri_t20_spline_d,ktri_t20_spline_10d)
+```
+
+```{r}
+anova(ktri_t20_spline_d,ktri_t20_spline_m)
+```
+
+```{r}
+anova(ktri_t20_spline_m,ktri_t20_spline_10d) # this one
+```
+
+```{r}
+anova(ktri_t30_spline_d,ktri_t30_spline_10d)
+```
+
+```{r}
+anova(ktri_t30_spline_d,ktri_t30_spline_m)
+```
+
+```{r}
+anova(ktri_t30_spline_m,ktri_t30_spline_10d) # this one
+```
+
+##### Dewpoint Temperature
+
+```{r}
+anova(ktri_dp10_spline_d,ktri_dp10_spline_10d) 
+```
+
+```{r}
+anova(ktri_dp10_spline_d,ktri_dp10_spline_m)
+```
+
+```{r}
+anova(ktri_dp10_spline_m,ktri_dp10_spline_10d) # this one
+```
+
+```{r}
+anova(ktri_dp20_spline_d,ktri_dp20_spline_10d)
+```
+
+```{r}
+anova(ktri_dp20_spline_d,ktri_dp20_spline_m)
+```
+
+```{r}
+anova(ktri_dp20_spline_m,ktri_dp20_spline_10d) # this one
+```
+
+```{r}
+anova(ktri_dp30_spline_d,ktri_dp30_spline_10d)
+```
+
+```{r}
+anova(ktri_dp30_spline_d,ktri_dp30_spline_m)
+```
+
+```{r}
+anova(ktri_dp30_spline_m,ktri_dp30_spline_10d) # this one
+```
+
+##### Wind Direction
+
+```{r}
+anova(ktri_wd10_spline_d,ktri_wd10_spline_10d)
+```
+
+```{r}
+anova(ktri_wd10_spline_d,ktri_wd10_spline_m)
+```
+
+```{r}
+anova(ktri_wd10_spline_m,ktri_wd10_spline_10d) # this one
+```
+
+```{r}
+anova(ktri_wd20_spline_d,ktri_wd20_spline_10d)
+```
+
+```{r}
+anova(ktri_wd20_spline_d,ktri_wd20_spline_m)
+```
+
+```{r}
+anova(ktri_wd20_spline_m,ktri_wd20_spline_10d) # this one
+```
+
+```{r}
+anova(ktri_wd30_spline_d,ktri_wd30_spline_10d)
+```
+
+```{r}
+anova(ktri_wd30_spline_d,ktri_wd30_spline_m)
+```
+
+```{r}
+anova(ktri_wd30_spline_m,ktri_wd30_spline_10d) # this one
+```
+
+##### Wind Speed
+
+```{r}
+anova(ktri_ws10_spline_d,ktri_ws10_spline_10d)
+```
+
+```{r}
+anova(ktri_ws10_spline_d,ktri_ws10_spline_m)
+```
+
+```{r}
+anova(ktri_ws10_spline_m,ktri_ws10_spline_10d)
+```
+
+```{r}
+anova(ktri_ws20_spline_d,ktri_ws20_spline_10d)
+```
+
+```{r}
+anova(ktri_ws20_spline_d,ktri_ws20_spline_m)
+```
+
+```{r}
+anova(ktri_ws20_spline_m,ktri_ws20_spline_10d) # this one
+```
+
+```{r}
+anova(ktri_ws30_spline_d,ktri_ws30_spline_10d)
+```
+
+```{r}
+anova(ktri_ws30_spline_d,ktri_ws30_spline_m)
+```
+
+```{r}
+anova(ktri_ws30_spline_m,ktri_ws30_spline_10d)
+```
+
+##### Wind Gust Speed
+
+```{r}
+anova(ktri_wg10_spline_d,ktri_wg10_spline_10d)
+```
+
+```{r}
+anova(ktri_wg10_spline_d,ktri_wg10_spline_m)
+```
+
+```{r}
+anova(ktri_wg10_spline_m,ktri_wg10_spline_10d) # this one
+```
+
+```{r}
+anova(ktri_wg20_spline_d,ktri_wg20_spline_10d)
+```
+
+```{r}
+anova(ktri_wg20_spline_d,ktri_wg20_spline_m)
+```
+
+```{r}
+anova(ktri_wg20_spline_m,ktri_wg20_spline_10d) # this one
+```
+
+```{r}
+anova(ktri_wg30_spline_d,ktri_wg30_spline_10d)
+```
+
+```{r}
+anova(ktri_wg30_spline_d,ktri_wg30_spline_m)
+```
+
+```{r}
+anova(ktri_wg30_spline_m,ktri_wg30_spline_10d) # this one
+```
+
+##### Average Cloud Ceiling Height
+
+```{r}
+anova(ktri_cig10_spline_d,ktri_cig10_spline_10d)
+```
+
+```{r}
+anova(ktri_cig10_spline_d,ktri_cig10_spline_m)
+```
+
+```{r}
+anova(ktri_cig10_spline_m,ktri_cig10_spline_10d) # this one
+```
+
+```{r}
+anova(ktri_cig20_spline_d,ktri_cig20_spline_10d)
+```
+
+```{r}
+anova(ktri_cig20_spline_d,ktri_cig20_spline_m)
+```
+
+```{r}
+anova(ktri_cig20_spline_m,ktri_cig20_spline_10d) # this one
+```
+
+```{r}
+anova(ktri_cig30_spline_d,ktri_cig30_spline_10d)
+```
+
+```{r}
+anova(ktri_cig30_spline_d,ktri_cig30_spline_m)
+```
+
+```{r}
+anova(ktri_cig30_spline_m,ktri_cig30_spline_10d) # this one
+```
+
+##### Average Visibility
+
+```{r}
+anova(ktri_vis10_spline_d,ktri_vis10_spline_10d)
+```
+
+```{r}
+anova(ktri_vis10_spline_d,ktri_vis10_spline_m)
+```
+
+```{r}
+anova(ktri_vis10_spline_m,ktri_vis10_spline_10d) # this one
+```
+
+```{r}
+anova(ktri_vis20_spline_d,ktri_vis20_spline_10d)
+```
+
+```{r}
+anova(ktri_vis20_spline_d,ktri_vis20_spline_m)
+```
+
+```{r}
+anova(ktri_vis20_spline_m,ktri_vis20_spline_10d) # this one
+```
+
+```{r}
+anova(ktri_vis30_spline_d,ktri_vis30_spline_10d)
+```
+
+```{r}
+anova(ktri_vis30_spline_d,ktri_vis30_spline_m)
+```
+
+```{r}
+anova(ktri_vis30_spline_m,ktri_vis30_spline_10d)
+```
+
+##### Average Cloud Cover
+
+```{r}
+anova(ktri_cc10_spline_d,ktri_cc10_spline_10d)
+```
+
+```{r}
+anova(ktri_cc10_spline_d,ktri_cc10_spline_m)
+```
+
+```{r}
+anova(ktri_cc10_spline_m,ktri_cc10_spline_10d) # this one
+```
+
+```{r}
+anova(ktri_cc20_spline_d,ktri_cc20_spline_10d)
+```
+
+```{r}
+anova(ktri_cc20_spline_d,ktri_cc20_spline_m)
+```
+
+```{r}
+anova(ktri_cc20_spline_m,ktri_cc20_spline_10d) # this one
+```
+
+```{r}
+anova(ktri_cc30_spline_d,ktri_cc30_spline_10d)
+```
+
+```{r}
+anova(ktri_cc30_spline_d,ktri_cc30_spline_m)
+```
+
+```{r}
+anova(ktri_cc30_spline_m,ktri_cc30_spline_10d) # this one
+```
+
+##### Average Altimeter Setting
+
+```{r}
+anova(ktri_alt10_spline_d,ktri_alt10_spline_10d)
+```
+
+```{r}
+anova(ktri_alt10_spline_d,ktri_alt10_spline_m)
+```
+
+```{r}
+anova(ktri_alt10_spline_m,ktri_alt10_spline_10d) # this one
+```
+
+```{r}
+anova(ktri_alt20_spline_d,ktri_alt20_spline_10d)
+```
+
+```{r}
+anova(ktri_alt20_spline_d,ktri_alt20_spline_m)
+```
+
+```{r}
+anova(ktri_alt20_spline_m,ktri_alt20_spline_10d) # this one
+```
+
+```{r}
+anova(ktri_alt30_spline_d,ktri_alt30_spline_10d)
+```
+
+```{r}
+anova(ktri_alt30_spline_d,ktri_alt30_spline_m)
+```
+
+```{r}
+anova(ktri_alt30_spline_m,ktri_alt30_spline_10d) # this one
+```
+
+#### PAJN {.tabset}
+
+##### Temperature
+
+```{r}
+anova(pajn_t10_spline_d,pajn_t10_spline_10d)
+```
+
+```{r}
+anova(pajn_t10_spline_d,pajn_t10_spline_m)
+```
+
+```{r}
+anova(pajn_t10_spline_m,pajn_t10_spline_10d) # this one
+```
+
+```{r}
+anova(pajn_t20_spline_d,pajn_t20_spline_10d)
+```
+
+```{r}
+anova(pajn_t20_spline_d,pajn_t20_spline_m)
+```
+
+```{r}
+anova(pajn_t20_spline_m,pajn_t20_spline_10d) # this one
+```
+
+```{r}
+anova(pajn_t30_spline_d,pajn_t30_spline_10d)
+```
+
+```{r}
+anova(pajn_t30_spline_d,pajn_t30_spline_m)
+```
+
+```{r}
+anova(pajn_t30_spline_m,pajn_t30_spline_10d) # this one
+```
+
+##### Dewpoint Temperature
+
+```{r}
+anova(pajn_dp10_spline_d,pajn_dp10_spline_10d) 
+```
+
+```{r}
+anova(pajn_dp10_spline_d,pajn_dp10_spline_m)
+```
+
+```{r}
+anova(pajn_dp10_spline_m,pajn_dp10_spline_10d) # this one
+```
+
+```{r}
+anova(pajn_dp20_spline_d,pajn_dp20_spline_10d)
+```
+
+```{r}
+anova(pajn_dp20_spline_d,pajn_dp20_spline_m)
+```
+
+```{r}
+anova(pajn_dp20_spline_m,pajn_dp20_spline_10d) # this one
+```
+
+```{r}
+anova(pajn_dp30_spline_d,pajn_dp30_spline_10d)
+```
+
+```{r}
+anova(pajn_dp30_spline_d,pajn_dp30_spline_m)
+```
+
+```{r}
+anova(pajn_dp30_spline_m,pajn_dp30_spline_10d) # this one
+```
+
+##### Wind Direction
+
+```{r}
+anova(pajn_wd10_spline_d,pajn_wd10_spline_10d)
+```
+
+```{r}
+anova(pajn_wd10_spline_d,pajn_wd10_spline_m)
+```
+
+```{r}
+anova(pajn_wd10_spline_m,pajn_wd10_spline_10d) # this one
+```
+
+```{r}
+anova(pajn_wd20_spline_d,pajn_wd20_spline_10d)
+```
+
+```{r}
+anova(pajn_wd20_spline_d,pajn_wd20_spline_m)
+```
+
+```{r}
+anova(pajn_wd20_spline_m,pajn_wd20_spline_10d) # this one
+```
+
+```{r}
+anova(pajn_wd30_spline_d,pajn_wd30_spline_10d)
+```
+
+```{r}
+anova(pajn_wd30_spline_d,pajn_wd30_spline_m)
+```
+
+```{r}
+anova(pajn_wd30_spline_m,pajn_wd30_spline_10d) # this one
+```
+
+##### Wind Speed
+
+```{r}
+anova(pajn_ws10_spline_d,pajn_ws10_spline_10d)
+```
+
+```{r}
+anova(pajn_ws10_spline_d,pajn_ws10_spline_m)
+```
+
+```{r}
+anova(pajn_ws10_spline_m,pajn_ws10_spline_10d) # this one
+```
+
+```{r}
+anova(pajn_ws20_spline_d,pajn_ws20_spline_10d)
+```
+
+```{r}
+anova(pajn_ws20_spline_d,pajn_ws20_spline_m)
+```
+
+```{r}
+anova(pajn_ws20_spline_m,pajn_ws20_spline_10d) # this one
+```
+
+```{r}
+anova(pajn_ws30_spline_d,pajn_ws30_spline_10d)
+```
+
+```{r}
+anova(pajn_ws30_spline_d,pajn_ws30_spline_m)
+```
+
+```{r}
+anova(pajn_ws30_spline_m,pajn_ws30_spline_10d) # this one
+```
+
+##### Wind Gust Speed
+
+```{r}
+anova(pajn_wg10_spline_d,pajn_wg10_spline_10d)
+```
+
+```{r}
+anova(pajn_wg10_spline_d,pajn_wg10_spline_m)
+```
+
+```{r}
+anova(pajn_wg10_spline_m,pajn_wg10_spline_10d) # this one
+```
+
+```{r}
+anova(pajn_wg20_spline_d,pajn_wg20_spline_10d)
+```
+
+```{r}
+anova(pajn_wg20_spline_d,pajn_wg20_spline_m)
+```
+
+```{r}
+anova(pajn_wg20_spline_m,pajn_wg20_spline_10d) # this one
+```
+
+```{r}
+anova(pajn_wg30_spline_d,pajn_wg30_spline_10d)
+```
+
+```{r}
+anova(pajn_wg30_spline_d,pajn_wg30_spline_m)
+```
+
+```{r}
+anova(pajn_wg30_spline_m,pajn_wg30_spline_10d) # this one
+```
+
+##### Average Cloud Ceiling Height
+
+```{r}
+anova(pajn_cig10_spline_d,pajn_cig10_spline_10d)
+```
+
+```{r}
+anova(pajn_cig10_spline_d,pajn_cig10_spline_m)
+```
+
+```{r}
+anova(pajn_cig10_spline_m,pajn_cig10_spline_10d) # this one
+```
+
+```{r}
+anova(pajn_cig20_spline_d,pajn_cig20_spline_10d)
+```
+
+```{r}
+anova(pajn_cig20_spline_d,pajn_cig20_spline_m)
+```
+
+```{r}
+anova(pajn_cig20_spline_m,pajn_cig20_spline_10d) # this one
+```
+
+```{r}
+anova(pajn_cig30_spline_d,pajn_cig30_spline_10d)
+```
+
+```{r}
+anova(pajn_cig30_spline_d,pajn_cig30_spline_m)
+```
+
+```{r}
+anova(pajn_cig30_spline_m,pajn_cig30_spline_10d) # this one
+```
+
+##### Average Visibility
+
+```{r}
+anova(pajn_vis10_spline_d,pajn_vis10_spline_10d)
+```
+
+```{r}
+anova(pajn_vis10_spline_d,pajn_vis10_spline_m)
+```
+
+```{r}
+anova(pajn_vis10_spline_m,pajn_vis10_spline_10d) # this one
+```
+
+```{r}
+anova(pajn_vis20_spline_d,pajn_vis20_spline_10d)
+```
+
+```{r}
+anova(pajn_vis20_spline_d,pajn_vis20_spline_m)
+```
+
+```{r}
+anova(pajn_vis20_spline_m,pajn_vis20_spline_10d) # this one
+```
+
+```{r}
+anova(pajn_vis30_spline_d,pajn_vis30_spline_10d)
+```
+
+```{r}
+anova(pajn_vis30_spline_d,pajn_vis30_spline_m)
+```
+
+```{r}
+anova(pajn_vis30_spline_m,pajn_vis30_spline_10d) # this one
+```
+
+##### Average Cloud Cover
+
+```{r}
+anova(pajn_cc10_spline_d,pajn_cc10_spline_10d)
+```
+
+```{r}
+anova(pajn_cc10_spline_d,pajn_cc10_spline_m)
+```
+
+```{r}
+anova(pajn_cc10_spline_m,pajn_cc10_spline_10d) # this one
+```
+
+```{r}
+anova(pajn_cc20_spline_d,pajn_cc20_spline_10d)
+```
+
+```{r}
+anova(pajn_cc20_spline_d,pajn_cc20_spline_m)
+```
+
+```{r}
+anova(pajn_cc20_spline_m,pajn_cc20_spline_10d) # this one
+```
+
+```{r}
+anova(pajn_cc30_spline_d,pajn_cc30_spline_10d)
+```
+
+```{r}
+anova(pajn_cc30_spline_d,pajn_cc30_spline_m)
+```
+
+```{r}
+anova(pajn_cc30_spline_m,pajn_cc30_spline_10d) # this one
+```
+
+##### Average Altimeter Setting
+
+```{r}
+anova(pajn_alt10_spline_d,pajn_alt10_spline_10d)
+```
+
+```{r}
+anova(pajn_alt10_spline_d,pajn_alt10_spline_m)
+```
+
+```{r}
+anova(pajn_alt10_spline_m,pajn_alt10_spline_10d) # this one
+```
+
+```{r}
+anova(pajn_alt20_spline_d,pajn_alt20_spline_10d)
+```
+
+```{r}
+anova(pajn_alt20_spline_d,pajn_alt20_spline_m)
+```
+
+```{r}
+anova(pajn_alt20_spline_m,pajn_alt20_spline_10d) # this one
+```
+
+```{r}
+anova(pajn_alt30_spline_d,pajn_alt30_spline_10d)
+```
+
+```{r}
+anova(pajn_alt30_spline_d,pajn_alt30_spline_m)
+```
+
+```{r}
+anova(pajn_alt30_spline_m,pajn_alt30_spline_10d) # this one
+```
+
+#### KELP {.tabset}
+
+##### Temperature
+
+```{r}
+anova(kelp_t10_spline_d,kelp_t10_spline_10d)
+```
+
+```{r}
+anova(kelp_t10_spline_d,kelp_t10_spline_m)
+```
+
+```{r}
+anova(kelp_t10_spline_m,kelp_t10_spline_10d) # this one
+```
+
+```{r}
+anova(kelp_t20_spline_d,kelp_t20_spline_10d)
+```
+
+```{r}
+anova(kelp_t20_spline_d,kelp_t20_spline_m)
+```
+
+```{r}
+anova(kelp_t20_spline_m,kelp_t20_spline_10d) # this one
+```
+
+```{r}
+anova(kelp_t30_spline_d,kelp_t30_spline_10d)
+```
+
+```{r}
+anova(kelp_t30_spline_d,kelp_t30_spline_m)
+```
+
+```{r}
+anova(kelp_t30_spline_m,kelp_t30_spline_10d) # this one
+```
+
+##### Dewpoint Temperature
+
+```{r}
+anova(kelp_dp10_spline_d,kelp_dp10_spline_10d) 
+```
+
+```{r}
+anova(kelp_dp10_spline_d,kelp_dp10_spline_m)
+```
+
+```{r}
+anova(kelp_dp10_spline_m,kelp_dp10_spline_10d) # this one
+```
+
+```{r}
+anova(kelp_dp20_spline_d,kelp_dp20_spline_10d)
+```
+
+```{r}
+anova(kelp_dp20_spline_d,kelp_dp20_spline_m)
+```
+
+```{r}
+anova(kelp_dp20_spline_m,kelp_dp20_spline_10d) # this one
+```
+
+```{r}
+anova(kelp_dp30_spline_d,kelp_dp30_spline_10d)
+```
+
+```{r}
+anova(kelp_dp30_spline_d,kelp_dp30_spline_m)
+```
+
+```{r}
+anova(kelp_dp30_spline_m,kelp_dp30_spline_10d) # this one
+```
+
+##### Wind Direction
+
+```{r}
+anova(kelp_wd10_spline_d,kelp_wd10_spline_10d)
+```
+
+```{r}
+anova(kelp_wd10_spline_d,kelp_wd10_spline_m)
+```
+
+```{r}
+anova(kelp_wd10_spline_m,kelp_wd10_spline_10d) # this one
+```
+
+```{r}
+anova(kelp_wd20_spline_d,kelp_wd20_spline_10d)
+```
+
+```{r}
+anova(kelp_wd20_spline_d,kelp_wd20_spline_m)
+```
+
+```{r}
+anova(kelp_wd20_spline_m,kelp_wd20_spline_10d) # this one
+```
+
+```{r}
+anova(kelp_wd30_spline_d,kelp_wd30_spline_10d)
+```
+
+```{r}
+anova(kelp_wd30_spline_d,kelp_wd30_spline_m)
+```
+
+```{r}
+anova(kelp_wd30_spline_m,kelp_wd30_spline_10d) # this one
+```
+
+##### Wind Speed
+
+```{r}
+anova(kelp_ws10_spline_d,kelp_ws10_spline_10d)
+```
+
+```{r}
+anova(kelp_ws10_spline_d,kelp_ws10_spline_m)
+```
+
+```{r}
+anova(kelp_ws10_spline_m,kelp_ws10_spline_10d)
+```
+
+```{r}
+anova(kelp_ws20_spline_d,kelp_ws20_spline_10d)
+```
+
+```{r}
+anova(kelp_ws20_spline_d,kelp_ws20_spline_m)
+```
+
+```{r}
+anova(kelp_ws20_spline_m,kelp_ws20_spline_10d)
+```
+
+```{r}
+anova(kelp_ws30_spline_d,kelp_ws30_spline_10d)
+```
+
+```{r}
+anova(kelp_ws30_spline_d,kelp_ws30_spline_m)
+```
+
+```{r}
+anova(kelp_ws30_spline_m,kelp_ws30_spline_10d) # this one
+```
+
+##### Wind Gust Speed
+
+```{r}
+anova(kelp_wg10_spline_d,kelp_wg10_spline_10d)
+```
+
+```{r}
+anova(kelp_wg10_spline_d,kelp_wg10_spline_m)
+```
+
+```{r}
+anova(kelp_wg10_spline_m,kelp_wg10_spline_10d) # this one
+```
+
+```{r}
+anova(kelp_wg20_spline_d,kelp_wg20_spline_10d)
+```
+
+```{r}
+anova(kelp_wg20_spline_d,kelp_wg20_spline_m)
+```
+
+```{r}
+anova(kelp_wg20_spline_m,kelp_wg20_spline_10d)
+```
+
+```{r}
+anova(kelp_wg30_spline_d,kelp_wg30_spline_10d)
+```
+
+```{r}
+anova(kelp_wg30_spline_d,kelp_wg30_spline_m)
+```
+
+```{r}
+anova(kelp_wg30_spline_m,kelp_wg30_spline_10d)
+```
+
+##### Average Cloud Ceiling Height
+
+```{r}
+anova(kelp_cig10_spline_d,kelp_cig10_spline_10d)
+```
+
+```{r}
+anova(kelp_cig10_spline_d,kelp_cig10_spline_m)
+```
+
+```{r}
+anova(kelp_cig10_spline_m,kelp_cig10_spline_10d) # this one
+```
+
+```{r}
+anova(kelp_cig20_spline_d,kelp_cig20_spline_10d)
+```
+
+```{r}
+anova(kelp_cig20_spline_d,kelp_cig20_spline_m)
+```
+
+```{r}
+anova(kelp_cig20_spline_m,kelp_cig20_spline_10d) # this one
+```
+
+```{r}
+anova(kelp_cig30_spline_d,kelp_cig30_spline_10d)
+```
+
+```{r}
+anova(kelp_cig30_spline_d,kelp_cig30_spline_m)
+```
+
+```{r}
+anova(kelp_cig30_spline_m,kelp_cig30_spline_10d) # this one
+```
+
+##### Average Visibility
+
+```{r}
+anova(kelp_vis10_spline_d,kelp_vis10_spline_10d)
+```
+
+```{r}
+anova(kelp_vis10_spline_d,kelp_vis10_spline_m)
+```
+
+```{r}
+anova(kelp_vis10_spline_m,kelp_vis10_spline_10d)
+```
+
+```{r}
+anova(kelp_vis20_spline_d,kelp_vis20_spline_10d)
+```
+
+```{r}
+anova(kelp_vis20_spline_d,kelp_vis20_spline_m)
+```
+
+```{r}
+anova(kelp_vis20_spline_m,kelp_vis20_spline_10d) # this one
+```
+
+```{r}
+anova(kelp_vis30_spline_d,kelp_vis30_spline_10d)
+```
+
+```{r}
+anova(kelp_vis30_spline_d,kelp_vis30_spline_m)
+```
+
+```{r}
+anova(kelp_vis30_spline_m,kelp_vis30_spline_10d) # this one
+```
+
+##### Average Cloud Cover
+
+```{r}
+anova(kelp_cc10_spline_d,kelp_cc10_spline_10d)
+```
+
+```{r}
+anova(kelp_cc10_spline_d,kelp_cc10_spline_m)
+```
+
+```{r}
+anova(kelp_cc10_spline_m,kelp_cc10_spline_10d) # this one
+```
+
+```{r}
+anova(kelp_cc20_spline_d,kelp_cc20_spline_10d)
+```
+
+```{r}
+anova(kelp_cc20_spline_d,kelp_cc20_spline_m)
+```
+
+```{r}
+anova(kelp_cc20_spline_m,kelp_cc20_spline_10d) # this one
+```
+
+```{r}
+anova(kelp_cc30_spline_d,kelp_cc30_spline_10d)
+```
+
+```{r}
+anova(kelp_cc30_spline_d,kelp_cc30_spline_m)
+```
+
+```{r}
+anova(kelp_cc30_spline_m,kelp_cc30_spline_10d) # this one
+```
+
+##### Average Altimeter Setting
+
+```{r}
+anova(kelp_alt10_spline_d,kelp_alt10_spline_10d)
+```
+
+```{r}
+anova(kelp_alt10_spline_d,kelp_alt10_spline_m)
+```
+
+```{r}
+anova(kelp_alt10_spline_m,kelp_alt10_spline_10d) # this one
+```
+
+```{r}
+anova(kelp_alt20_spline_d,kelp_alt20_spline_10d)
+```
+
+```{r}
+anova(kelp_alt20_spline_d,kelp_alt20_spline_m)
+```
+
+```{r}
+anova(kelp_alt20_spline_m,kelp_alt20_spline_10d) # this one
+```
+
+```{r}
+anova(kelp_alt30_spline_d,kelp_alt30_spline_10d)
+```
+
+```{r}
+anova(kelp_alt30_spline_d,kelp_alt30_spline_m)
+```
+
+```{r}
+anova(kelp_alt30_spline_m,kelp_alt30_spline_10d) # this one
+```
+
+#### KSGU {.tabset}
+
+##### Temperature
+
+```{r}
+anova(ksgu_t10_spline_d,ksgu_t10_spline_10d)
+```
+
+```{r}
+anova(ksgu_t10_spline_d,ksgu_t10_spline_m)
+```
+
+```{r}
+anova(ksgu_t10_spline_m,ksgu_t10_spline_10d) # this one
+```
+
+```{r}
+anova(ksgu_t20_spline_d,ksgu_t20_spline_10d)
+```
+
+```{r}
+anova(ksgu_t20_spline_d,ksgu_t20_spline_m)
+```
+
+```{r}
+anova(ksgu_t20_spline_m,ksgu_t20_spline_10d) # this one
+```
+
+```{r}
+anova(ksgu_t30_spline_d,ksgu_t30_spline_10d)
+```
+
+```{r}
+anova(ksgu_t30_spline_d,ksgu_t30_spline_m)
+```
+
+```{r}
+anova(ksgu_t30_spline_m,ksgu_t30_spline_10d) # this one
+```
+
+##### Dewpoint Temperature
+
+```{r}
+anova(ksgu_dp10_spline_d,ksgu_dp10_spline_10d) 
+```
+
+```{r}
+anova(ksgu_dp10_spline_d,ksgu_dp10_spline_m)
+```
+
+```{r}
+anova(ksgu_dp10_spline_m,ksgu_dp10_spline_10d) # this one
+```
+
+```{r}
+anova(ksgu_dp20_spline_d,ksgu_dp20_spline_10d)
+```
+
+```{r}
+anova(ksgu_dp20_spline_d,ksgu_dp20_spline_m)
+```
+
+```{r}
+anova(ksgu_dp20_spline_m,ksgu_dp20_spline_10d) # this one
+```
+
+```{r}
+anova(ksgu_dp30_spline_d,ksgu_dp30_spline_10d)
+```
+
+```{r}
+anova(ksgu_dp30_spline_d,ksgu_dp30_spline_m)
+```
+
+```{r}
+anova(ksgu_dp30_spline_m,ksgu_dp30_spline_10d) # this one
+```
+
+##### Wind Direction
+
+```{r}
+anova(ksgu_wd10_spline_d,ksgu_wd10_spline_10d)
+```
+
+```{r}
+anova(ksgu_wd10_spline_d,ksgu_wd10_spline_m)
+```
+
+```{r}
+anova(ksgu_wd10_spline_m,ksgu_wd10_spline_10d) # this one
+```
+
+```{r}
+anova(ksgu_wd20_spline_d,ksgu_wd20_spline_10d)
+```
+
+```{r}
+anova(ksgu_wd20_spline_d,ksgu_wd20_spline_m)
+```
+
+```{r}
+anova(ksgu_wd20_spline_m,ksgu_wd20_spline_10d) # this one
+```
+
+```{r}
+anova(ksgu_wd30_spline_d,ksgu_wd30_spline_10d)
+```
+
+```{r}
+anova(ksgu_wd30_spline_d,ksgu_wd30_spline_m)
+```
+
+```{r}
+anova(ksgu_wd30_spline_m,ksgu_wd30_spline_10d) # this one
+```
+
+##### Wind Speed
+
+```{r}
+anova(ksgu_ws10_spline_d,ksgu_ws10_spline_10d)
+```
+
+```{r}
+anova(ksgu_ws10_spline_d,ksgu_ws10_spline_m)
+```
+
+```{r}
+anova(ksgu_ws10_spline_m,ksgu_ws10_spline_10d)
+```
+
+```{r}
+anova(ksgu_ws20_spline_d,ksgu_ws20_spline_10d)
+```
+
+```{r}
+anova(ksgu_ws20_spline_d,ksgu_ws20_spline_m)
+```
+
+```{r}
+anova(ksgu_ws20_spline_m,ksgu_ws20_spline_10d) # this one
+```
+
+```{r}
+anova(ksgu_ws30_spline_d,ksgu_ws30_spline_10d)
+```
+
+```{r}
+anova(ksgu_ws30_spline_d,ksgu_ws30_spline_m)
+```
+
+```{r}
+anova(ksgu_ws30_spline_m,ksgu_ws30_spline_10d)
+```
+
+##### Wind Gust Speed
+
+```{r}
+anova(ksgu_wg10_spline_d,ksgu_wg10_spline_10d)
+```
+
+```{r}
+anova(ksgu_wg10_spline_d,ksgu_wg10_spline_m)
+```
+
+```{r}
+anova(ksgu_wg10_spline_m,ksgu_wg10_spline_10d) # this one
+```
+
+```{r}
+anova(ksgu_wg20_spline_d,ksgu_wg20_spline_10d)
+```
+
+```{r}
+anova(ksgu_wg20_spline_d,ksgu_wg20_spline_m)
+```
+
+```{r}
+anova(ksgu_wg20_spline_m,ksgu_wg20_spline_10d) # this one
+```
+
+```{r}
+anova(ksgu_wg30_spline_d,ksgu_wg30_spline_10d)
+```
+
+```{r}
+anova(ksgu_wg30_spline_d,ksgu_wg30_spline_m)
+```
+
+```{r}
+anova(ksgu_wg30_spline_m,ksgu_wg30_spline_10d) # this one
+```
+
+##### Average Cloud Ceiling Height
+
+```{r}
+anova(ksgu_cig10_spline_d,ksgu_cig10_spline_10d)
+```
+
+```{r}
+anova(ksgu_cig10_spline_d,ksgu_cig10_spline_m)
+```
+
+```{r}
+anova(ksgu_cig10_spline_m,ksgu_cig10_spline_10d)
+```
+
+```{r}
+anova(ksgu_cig20_spline_d,ksgu_cig20_spline_10d)
+```
+
+```{r}
+anova(ksgu_cig20_spline_d,ksgu_cig20_spline_m)
+```
+
+```{r}
+anova(ksgu_cig20_spline_m,ksgu_cig20_spline_10d) # this one
+```
+
+```{r}
+anova(ksgu_cig30_spline_d,ksgu_cig30_spline_10d)
+```
+
+```{r}
+anova(ksgu_cig30_spline_d,ksgu_cig30_spline_m)
+```
+
+```{r}
+anova(ksgu_cig30_spline_m,ksgu_cig30_spline_10d) # this one
+```
+
+##### Average Visibility
+
+```{r}
+anova(ksgu_vis10_spline_d,ksgu_vis10_spline_10d)
+```
+
+```{r}
+anova(ksgu_vis10_spline_d,ksgu_vis10_spline_m)
+```
+
+```{r}
+anova(ksgu_vis10_spline_m,ksgu_vis10_spline_10d) # this one
+```
+
+```{r}
+anova(ksgu_vis20_spline_d,ksgu_vis20_spline_10d)
+```
+
+```{r}
+anova(ksgu_vis20_spline_d,ksgu_vis20_spline_m)
+```
+
+```{r}
+anova(ksgu_vis20_spline_m,ksgu_vis20_spline_10d) # this one
+```
+
+```{r}
+anova(ksgu_vis30_spline_d,ksgu_vis30_spline_10d)
+```
+
+```{r}
+anova(ksgu_vis30_spline_d,ksgu_vis30_spline_m)
+```
+
+```{r}
+anova(ksgu_vis30_spline_m,ksgu_vis30_spline_10d) # this one
+```
+
+##### Average Cloud Cover
+
+```{r}
+anova(ksgu_cc10_spline_d,ksgu_cc10_spline_10d)
+```
+
+```{r}
+anova(ksgu_cc10_spline_d,ksgu_cc10_spline_m)
+```
+
+```{r}
+anova(ksgu_cc10_spline_m,ksgu_cc10_spline_10d) # this one
+```
+
+```{r}
+anova(ksgu_cc20_spline_d,ksgu_cc20_spline_10d)
+```
+
+```{r}
+anova(ksgu_cc20_spline_d,ksgu_cc20_spline_m)
+```
+
+```{r}
+anova(ksgu_cc20_spline_m,ksgu_cc20_spline_10d) # this one
+```
+
+```{r}
+anova(ksgu_cc30_spline_d,ksgu_cc30_spline_10d)
+```
+
+```{r}
+anova(ksgu_cc30_spline_d,ksgu_cc30_spline_m)
+```
+
+```{r}
+anova(ksgu_cc30_spline_m,ksgu_cc30_spline_10d) # this one
+```
+
+##### Average Altimeter Setting
+
+```{r}
+anova(ksgu_alt10_spline_d,ksgu_alt10_spline_10d)
+```
+
+```{r}
+anova(ksgu_alt10_spline_d,ksgu_alt10_spline_m)
+```
+
+```{r}
+anova(ksgu_alt10_spline_m,ksgu_alt10_spline_10d)
+```
+
+```{r}
+anova(ksgu_alt20_spline_d,ksgu_alt20_spline_10d)
+```
+
+```{r}
+anova(ksgu_alt20_spline_d,ksgu_alt20_spline_m)
+```
+
+```{r}
+anova(ksgu_alt20_spline_m,ksgu_alt20_spline_10d) # this one
+```
+
+```{r}
+anova(ksgu_alt30_spline_d,ksgu_alt30_spline_10d)
+```
+
+```{r}
+anova(ksgu_alt30_spline_d,ksgu_alt30_spline_m)
+```
+
+```{r}
+anova(ksgu_alt30_spline_m,ksgu_alt30_spline_10d) # this one
+```
+
+#### ANOVA Comparison Table
+
+Note:
+
+* GREEN - Shows high statistical significance. 
+
+* ORANGE - Shows marginal statistical significance. Approaching P(>F) ~ 5%
+
+* RED - Shows low/no statistical significance
+
+<center>
+<table>
+  <tr>
+    <th>VARIABLE</th>
+    <th>KRDM</th>
+    <th>KBUF</th>
+    <th>KFOE</th>
+    <th>KMSN</th>
+    <th>KTRI</th>
+    <th>PAJN</th>
+    <th>KELP</th>
+    <th>KSGU</th>
+  </tr>
+  <tr>
+    <td>Temp (10-day/Monthly)</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+  </tr>
+  <tr>
+    <td>Temp (10-day/Daily)</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="m">M</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="m">M</td>
+  </tr>
+  <tr>
+    <td>Temp (Daily/Monthly)</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="m">M</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="m">M</td>
+  </tr>
+  <tr>
+    <td>DP Temp (10-day/Monthly)</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+  </tr>
+  <tr>
+    <td>DP Temp (10-day/Daily)</td>
+    <td class="n">N</td>
+    <td class="m">N</td>
+    <td class="m">N</td>
+    <td class="m">N</td>
+    <td class="m">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+  </tr>
+  <tr>
+    <td>DP Temp (Daily/Monthly)</td>
+    <td class="n">N</td>
+    <td class="m">N</td>
+    <td class="m">N</td>
+    <td class="m">N</td>
+    <td class="m">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+  </tr>
+  <tr>
+    <td>WD (10-day/Monthly)</td>
+    <td class="y">Y</td>
+    <td class="m">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="m">Y</td>
+  </tr>
+  <tr>
+    <td>WD (10-day/Daily)</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">M</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">M</td>
+  </tr>
+  <tr>
+    <td>WD (Daily/Monthly)</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">M</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">M</td>
+  </tr>
+  <tr>
+    <td>WS (10-day/Monthly)</td>
+    <td class="y">M</td>
+    <td class="m">M</td>
+    <td class="m">M</td>
+    <td class="n">N</td>
+    <td class="m">M</td>
+    <td class="y">Y</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+  </tr>
+  <tr>
+    <td>WS (10-day/Daily)</td>
+    <td class="n">N</td>
+    <td class="n">M</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="m">M</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">M</td>
+  </tr>
+  <tr>
+    <td>WS (Daily/Monthly)</td>
+    <td class="n">N</td>
+    <td class="n">M</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+  </tr>
+  <tr>
+    <td>CIG (10-day/Monthly)</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="m">M</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">M</td>
+  </tr>
+  <tr>
+    <td>CIG (10-day/Daily)</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">M</td>
+    <td class="n">N</td>
+    <td class="n">M</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+  </tr>
+  <tr>
+    <td>CIG (Daily/Monthly)</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+  </tr>
+  <tr>
+    <td>VIS (10-day/Monthly)</td>
+    <td class="y">Y</td>
+    <td class="m">M</td>
+    <td class="y">Y</td>
+    <td class="m">M</td>
+    <td class="y">M</td>
+    <td class="y">Y</td>
+    <td class="m">M</td>
+    <td class="y">Y</td>
+  </tr>
+  <tr>
+    <td>VIS (10-day/Daily)</td>
+    <td class="n">N</td>
+    <td class="m">N</td>
+    <td class="n">N</td>
+    <td class="m">M</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+  </tr>
+  <tr>
+    <td>VIS (Daily/Monthly)</td>
+    <td class="n">N</td>
+    <td class="m">N</td>
+    <td class="n">N</td>
+    <td class="m">M</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+  </tr>
+  <tr>
+    <td>CC (10-day/Monthly)</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+  </tr>
+  <tr>
+    <td>CC (10-day/Daily)</td>
+    <td class="m">M</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+  </tr>
+  <tr>
+    <td>CC (Daily/Monthly)</td>
+    <td class="m">M</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+    <td class="n">N</td>
+  </tr>
+  <tr>
+    <td>ALT (10-day/Monthly)</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="y">Y</td>
+    <td class="m">N</td>
+  </tr>
+  <tr>
+    <td>ALT (10-day/Daily)</td>
+    <td class="m">M</td>
+    <td class="m">N</td>
+    <td class="n">M</td>
+    <td class="m">M</td>
+    <td class="n">N</td>
+    <td class="m">Y</td>
+    <td class="n">M</td>
+    <td class="m">M</td>
+  </tr>
+  <tr>
+    <td>ALT (Daily/Monthly)</td>
+    <td class="m">M</td>
+    <td class="m">N</td>
+    <td class="n">M</td>
+    <td class="m">M</td>
+    <td class="n">N</td>
+    <td class="m">Y</td>
+    <td class="n">M</td>
+    <td class="m">M</td>
+  </tr>
+</table>
+</center>
+
+### Significant Spline Comparisons {.tabset}
+
+#### KRDM {.tabset}
+
+##### Temperature
+
+![10 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/10 year M-10 Temp Composite.png)
+
+![20 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/20 year M-10 TEMP Composite.png)
+
+![30 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/30 year M-10 TEMP Composite.png)
+
+##### Dewpoint Temperature
+
+![10 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/10 year M-10 DP Composite.png)
+
+![20 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/20 year M-10 DP Composite.png)
+
+![30 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/30 year M-10 DP Composite.png)
+
+##### Wind Direction
+
+![10 year Monthly vs. 10-day Wind Direction Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/10 year M-10 TEMP Composite.png)
+
+![20 year Monthly vs. 10-day Wind Direction Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/20 year M-10 TEMP Composite.png)
+
+![30 year Monthly vs. 10-day Wind Direction Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/30 year M-10 WD Composite.png)
+
+##### Wind Speed
+
+![10 year Monthly vs. 10-day Wind Speed Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/10 year M-10 WS Composite.png)
+
+![20 year Monthly vs. 10-day Wind Speed Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/20 year M-10 WS Composite.png)
+
+![30 year Monthly vs. 10-day Wind Speed Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/30 year M-10 WS Composite.png)
+
+##### Wind Gust Speed
+
+![10 year Monthly vs. 10-day Wind Gust Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/10 year M-10 WG Composite.png)
+
+![20 year Monthly vs. 10-day Wind Gust Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/20 year M-10 WG Composite.png)
+
+![30 year Monthly vs. 10-day Wind Gust Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/30 year M-10 WG Composite.png)
+
+##### Average Cloud Ceiling Height
+
+![10 year Monthly vs. 10-day Cloud Ceiling Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/10 year M-10 CIG Composite.png)
+
+![20 year Monthly vs. 10-day Cloud Ceiling Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/20 year M-10 CIG Composite.png)
+
+![30 year Monthly vs. 10-day Cloud Ceiling Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/30 year M-10 CIG Composite.png)
+
+##### Average Visibility
+
+![10 year Monthly vs. 10-day Visibility Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/10 year M-10 VIS Composite.png)
+
+![20 year Monthly vs. 10-day Visibility Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/20 year M-10 VIS Composite.png)
+
+![30 year Monthly vs. 10-day Visibility Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/30 year M-10 VIS Composite.png)
+
+##### Average Cloud Cover
+
+![10 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/10 year M-10 CC Composite.png)
+
+![20 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/20 year M-10 CC Composite.png)
+
+![30 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/30 year M-10 CC Composite.png)
+
+##### Average Altimeter Setting
+
+![10 year Monthly vs. 10-day Altimeter Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/krdm/10 year M-10 ALT Composite.png)
+
+#### KBUF {.tabset}
+
+##### Temperature
+
+![10 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/10 year M-10 TEMP Composite.png)
+
+![20 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/20 year M-10 TEMP Composite.png)
+
+![30 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/30 year M-10 TEMP Composite.png)
+
+##### Dewpoint Temperature
+
+![10 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/10 year M-10 DP Composite.png)
+
+![20 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/20 year M-10 DP Composite.png)
+
+![30 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/30 year M-10 DP Composite.png)
+
+##### Wind Direction
+
+![10 year Monthly vs. 10-day Wind Direction Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/10 year M-10 TEMP Composite.png)
+
+##### Wind Speed
+
+![10 year Monthly vs. 10-day Wind Speed Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/10 year M-10 WS Composite.png)
+
+![20 year Monthly vs. 10-day Wind Speed Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/20 year M-10 WS Composite.png)
+
+##### Wind Gust Speed
+
+![10 year Monthly vs. 10-day Wind Gust Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/10 year M-10 WG Composite.png)
+
+![20 year Monthly vs. 10-day Wind Gust Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/20 year M-10 WG Composite.png)
+
+![30 year Monthly vs. 10-day Wind Gust Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/30 year M-10 WG Composite.png)
+
+##### Average Cloud Ceiling Height
+
+![10 year Monthly vs. 10-day Cloud Ceiling Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/10 year M-10 CIG Composite.png)
+
+![20 year Monthly vs. 10-day Cloud Ceiling Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/20 year M-10 CIG Composite.png)
+
+![30 year Monthly vs. 10-day Cloud Ceiling Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/30 year M-10 CIG Composite.png)
+
+##### Average Visibility
+
+![20 year Monthly vs. 10-day Visibility Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/20 year M-10 VIS Composite.png)
+
+![30 year Monthly vs. 10-day Visibility Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/30 year M-10 VIS Composite.png)
+
+##### Average Cloud Cover
+
+![10 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/10 year M-10 CC Composite.png)
+
+![20 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/20 year M-10 CC Composite.png)
+
+![30 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/30 year M-10 CC Composite.png)
+
+##### Average Altimeter Setting
+
+![10 year Monthly vs. 10-day Altimeter Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/10 year M-10 ALT Composite.png)
+
+![20 year Monthly vs. 10-day Altimeter Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/20 year M-10 ALT Composite.png)
+
+![30 year Monthly vs. 10-day Altimeter Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kbuf/30 year M-10 ALT Composite.png)
+
+#### KFOE {.tabset}
+
+##### Temperature
+
+![10 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/10 year M-10 TEMP Composite.png)
+
+![20 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/20 year M-10 TEMP Composite.png)
+
+![30 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/30 year M-10 TEMP Composite.png)
+
+##### Dewpoint Temperature
+
+![10 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/10 year M-10 DP Composite.png)
+
+![20 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/20 year M-10 DP Composite.png)
+
+![30 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/30 year M-10 DP Composite.png)
+
+##### Wind Direction
+
+![10 year Monthly vs. 10-day Wind Direction Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/10 year M-10 TEMP Composite.png)
+
+![20 year Monthly vs. 10-day Wind Direction Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/20 year M-10 TEMP Composite.png)
+
+![30 year Monthly vs. 10-day Wind Direction Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/30 year M-10 WD Composite.png)
+
+##### Wind Speed
+
+![10 year Monthly vs. 10-day Wind Speed Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/10 year M-10 WS Composite.png)
+
+![30 year Monthly vs. 10-day Wind Speed Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/30 year M-10 WS Composite.png)
+
+##### Wind Gust Speed
+
+![10 year Monthly vs. 10-day Wind Gust Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/10 year M-10 WG Composite.png)
+
+![20 year Monthly vs. 10-day Wind Gust Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/20 year M-10 WG Composite.png)
+
+![30 year Monthly vs. 10-day Wind Gust Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/30 year M-10 WG Composite.png)
+
+##### Average Cloud Ceiling Height
+
+![10 year Monthly vs. 10-day Cloud Ceiling Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/10 year M-10 CIG Composite.png)
+
+![20 year Monthly vs. 10-day Cloud Ceiling Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/20 year M-10 CIG Composite.png)
+
+![30 year Monthly vs. 10-day Cloud Ceiling Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/30 year M-10 CIG Composite.png)
+
+##### Average Visibility
+
+![10 year Monthly vs. 10-day Visibility Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/10 year M-10 VIS Composite.png)
+
+![20 year Monthly vs. 10-day Visibility Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/20 year M-10 VIS Composite.png)
+
+![30 year Monthly vs. 10-day Visibility Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/30 year M-10 VIS Composite.png)
+
+##### Average Cloud Cover
+
+![10 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/10 year M-10 CC Composite.png)
+
+![20 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/20 year M-10 CC Composite.png)
+
+![30 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/30 year M-10 CC Composite.png)
+
+##### Average Altimeter Setting
+
+![10 year Monthly vs. 10-day Altimeter Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/10 year M-10 ALT Composite.png)
+
+![20 year Monthly vs. 10-day Altimeter Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/20 year M-10 ALT Composite.png)
+
+![30 year Monthly vs. 10-day Altimeter Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kfoe/30 year M-10 ALT Composite.png)
+
+#### KMSN {.tabset}
+
+##### Temperature
+
+![10 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/10 year M-10 TEMP Composite.png)
+
+![20 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/20 year M-10 TEMP Composite.png)
+
+![30 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/30 year M-10 TEMP Composite.png)
+
+##### Dewpoint Temperature
+
+![10 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/10 year M-10 DP Composite.png)
+
+![20 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/20 year M-10 DP Composite.png)
+
+![30 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/30 year M-10 DP Composite.png)
+
+##### Wind Direction
+
+![10 year Monthly vs. 10-day Wind Direction Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/10 year M-10 TEMP Composite.png)
+
+![20 year Monthly vs. 10-day Wind Direction Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/20 year M-10 TEMP Composite.png)
+
+![30 year Monthly vs. 10-day Wind Direction Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/30 year M-10 WD Composite.png)
+
+##### Wind Speed
+
+![10 year Monthly vs. 10-day Wind Speed Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/10 year M-10 WS Composite.png)
+
+![20 year Monthly vs. 10-day Wind Speed Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/20 year M-10 WS Composite.png)
+
+##### Wind Gust Speed
+
+![10 year Monthly vs. 10-day Wind Gust Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/10 year M-10 WG Composite.png)
+
+![20 year Monthly vs. 10-day Wind Gust Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/20 year M-10 WG Composite.png)
+
+![30 year Monthly vs. 10-day Wind Gust Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/30 year M-10 WG Composite.png)
+
+##### Average Cloud Ceiling Height
+
+![10 year Monthly vs. 10-day Cloud Ceiling Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/10 year M-10 CIG Composite.png)
+
+![20 year Monthly vs. 10-day Cloud Ceiling Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/20 year M-10 CIG Composite.png)
+
+![30 year Monthly vs. 10-day Cloud Ceiling Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/30 year M-10 CIG Composite.png)
+
+##### Average Visibility
+
+![10 year Monthly vs. 10-day Visibility Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/10 year M-10 VIS Composite.png)
+
+![20 year Monthly vs. *Daily* Visibility Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/20 year M-D VIS Composite.png)
+
+![30 year Monthly vs. 10-day Visibility Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/30 year M-10 VIS Composite.png)
+
+##### Average Cloud Cover
+
+![10 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/10 year M-10 CC Composite.png)
+
+![20 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/20 year M-10 CC Composite.png)
+
+![30 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/30 year M-10 CC Composite.png)
+
+##### Average Altimeter Setting
+
+![10 year Monthly vs. 10-day Altimeter Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/10 year M-10 ALT Composite.png)
+
+![20 year Monthly vs. 10-day Altimeter Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/20 year M-10 ALT Composite.png)
+
+![30 year Monthly vs. 10-day Altimeter Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kmsn/30 year M-10 ALT Composite.png)
+
+#### KTRI {.tabset}
+
+##### Temperature
+
+![10 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/10 year M-10 TEMP Composite.png)
+
+![20 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/20 year M-10 TEMP Composite.png)
+
+![30 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/30 year M-10 TEMP Composite.png)
+
+##### Dewpoint Temperature
+
+![10 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/10 year M-10 DP Composite.png)
+
+![20 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/20 year M-10 DP Composite.png)
+
+![30 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/30 year M-10 DP Composite.png)
+
+##### Wind Direction
+
+![10 year Monthly vs. 10-day Wind Direction Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/10 year M-10 TEMP Composite.png)
+
+![20 year Monthly vs. 10-day Wind Direction Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/20 year M-10 TEMP Composite.png)
+
+![30 year Monthly vs. 10-day Wind Direction Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/30 year M-10 WD Composite.png)
+
+##### Wind Speed
+
+![20 year Monthly vs. 10-day Wind Speed Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/20 year M-10 WS Composite.png)
+
+##### Wind Gust Speed
+
+![10 year Monthly vs. 10-day Wind Gust Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/10 year M-10 WG Composite.png)
+
+![20 year Monthly vs. 10-day Wind Gust Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/20 year M-10 WG Composite.png)
+
+![30 year Monthly vs. 10-day Wind Gust Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/30 year M-10 WG Composite.png)
+
+##### Average Cloud Ceiling Height
+
+![10 year Monthly vs. 10-day Cloud Ceiling Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/10 year M-10 CIG Composite.png)
+
+![20 year Monthly vs. 10-day Cloud Ceiling Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/20 year M-10 CIG Composite.png)
+
+![30 year Monthly vs. 10-day Cloud Ceiling Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/30 year M-10 CIG Composite.png)
+
+##### Average Visibility
+
+![10 year Monthly vs. 10-day Visibility Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/10 year M-10 VIS Composite.png)
+
+![20 year Monthly vs. 10-day Visibility Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/20 year M-10 VIS Composite.png)
+
+##### Average Cloud Cover
+
+![10 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/10 year M-10 CC Composite.png)
+
+![20 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/20 year M-10 CC Composite.png)
+
+![30 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/30 year M-10 CC Composite.png)
+
+##### Average Altimeter Setting
+
+![10 year Monthly vs. 10-day Altimeter Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/10 year M-10 ALT Composite.png)
+
+![20 year Monthly vs. 10-day Altimeter Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/20 year M-10 ALT Composite.png)
+
+![30 year Monthly vs. 10-day Altimeter Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ktri/30 year M-10 ALT Composite.png)
+
+#### PAJN {.tabset}
+
+##### Temperature
+
+![10 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/10 year M-10 TEMP Composite.png)
+
+![20 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/20 year M-10 TEMP Composite.png)
+
+![30 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/30 year M-10 TEMP Composite.png)
+
+##### Dewpoint Temperature
+
+![10 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/10 year M-10 DP Composite.png)
+
+![20 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/20 year M-10 DP Composite.png)
+
+![30 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/30 year M-10 DP Composite.png)
+
+##### Wind Direction
+
+![10 year Monthly vs. 10-day Wind Direction Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/10 year M-10 TEMP Composite.png)
+
+![20 year Monthly vs. 10-day Wind Direction Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/20 year M-10 TEMP Composite.png)
+
+![30 year Monthly vs. 10-day Wind Direction Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/30 year M-10 WD Composite.png)
+
+##### Wind Speed
+
+![10 year Monthly vs. 10-day Wind Speed Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/10 year M-10 WS Composite.png)
+
+![20 year Monthly vs. 10-day Wind Speed Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/20 year M-10 WS Composite.png)
+
+![30 year Monthly vs. 10-day Wind Speed Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/30 year M-10 WS Composite.png)
+
+##### Wind Gust Speed
+
+![10 year Monthly vs. 10-day Wind Gust Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/10 year M-10 WG Composite.png)
+
+![20 year Monthly vs. 10-day Wind Gust Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/20 year M-10 WG Composite.png)
+
+![30 year Monthly vs. 10-day Wind Gust Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/30 year M-10 WG Composite.png)
+
+##### Average Cloud Ceiling Height
+
+![10 year Monthly vs. 10-day Cloud Ceiling Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/10 year M-10 CIG Composite.png)
+
+![20 year Monthly vs. 10-day Cloud Ceiling Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/20 year M-10 CIG Composite.png)
+
+![30 year Monthly vs. 10-day Cloud Ceiling Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/30 year M-10 CIG Composite.png)
+
+##### Average Visibility
+
+![10 year Monthly vs. 10-day Visibility Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/10 year M-10 VIS Composite.png)
+
+![20 year Monthly vs. 10-day Visibility Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/20 year M-10 VIS Composite.png)
+
+![30 year Monthly vs. 10-day Visibility Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/30 year M-10 VIS Composite.png)
+
+##### Average Cloud Cover
+
+![10 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/10 year M-10 CC Composite.png)
+
+![20 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/20 year M-10 CC Composite.png)
+
+![30 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/30 year M-10 CC Composite.png)
+
+##### Average Altimeter Setting
+
+![10 year Monthly vs. 10-day Altimeter Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/10 year M-10 ALT Composite.png)
+
+![20 year Monthly vs. 10-day Altimeter Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/20 year M-10 ALT Composite.png)
+
+![30 year Monthly vs. 10-day Altimeter Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/pajn/30 year M-10 ALT Composite.png)
+
+#### KELP {.tabset}
+
+##### Temperature
+
+![10 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/10 year M-10 TEMP Composite.png)
+
+![20 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/20 year M-10 TEMP Composite.png)
+
+![30 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/30 year M-10 TEMP Composite.png)
+
+##### Dewpoint Temperature
+
+![10 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/10 year M-10 DP Composite.png)
+
+![20 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/20 year M-10 DP Composite.png)
+
+![30 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/30 year M-10 DP Composite.png)
+
+##### Wind Direction
+
+![10 year Monthly vs. 10-day Wind Direction Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/10 year M-10 TEMP Composite.png)
+
+![20 year Monthly vs. 10-day Wind Direction Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/20 year M-10 TEMP Composite.png)
+
+![30 year Monthly vs. 10-day Wind Direction Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/30 year M-10 WD Composite.png)
+
+##### Wind Speed
+
+![30 year Monthly vs. 10-day Wind Speed Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/30 year M-10 WS Composite.png)
+
+##### Wind Gust Speed
+
+![10 year Monthly vs. 10-day Wind Gust Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/10 year M-10 WG Composite.png)
+
+##### Average Cloud Ceiling Height
+
+![10 year Monthly vs. 10-day Cloud Ceiling Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/10 year M-10 CIG Composite.png)
+
+![20 year Monthly vs. 10-day Cloud Ceiling Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/20 year M-10 CIG Composite.png)
+
+![30 year Monthly vs. 10-day Cloud Ceiling Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/30 year M-10 CIG Composite.png)
+
+##### Average Visibility
+
+![20 year Monthly vs. 10-day Visibility Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/20 year M-10 VIS Composite.png)
+
+![30 year Monthly vs. 10-day Visibility Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/30 year M-10 VIS Composite.png)
+
+##### Average Cloud Cover
+
+![10 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/10 year M-10 CC Composite.png)
+
+![20 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/20 year M-10 CC Composite.png)
+
+![30 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/30 year M-10 CC Composite.png)
+
+##### Average Altimeter Setting
+
+![10 year Monthly vs. 10-day Altimeter Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/10 year M-10 ALT Composite.png)
+
+![20 year Monthly vs. 10-day Altimeter Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/20 year M-10 ALT Composite.png)
+
+![30 year Monthly vs. 10-day Altimeter Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/kelp/30 year M-10 ALT Composite.png)
+
+#### KSGU {.tabset}
+
+##### Temperature
+
+![10 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/10 year M-10 TEMP Composite.png)
+
+![20 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/20 year M-10 TEMP Composite.png)
+
+![30 year Monthly vs. 10-day Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/30 year M-10 TEMP Composite.png)
+
+##### Dewpoint Temperature
+
+![10 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/10 year M-10 DP Composite.png)
+
+![20 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/20 year M-10 DP Composite.png)
+
+![30 year Monthly vs. 10-day Dewpoint Temperature Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/30 year M-10 DP Composite.png)
+
+##### Wind Direction
+
+![10 year Monthly vs. 10-day Wind Direction Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/10 year M-10 TEMP Composite.png)
+
+![20 year Monthly vs. 10-day Wind Direction Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/20 year M-10 TEMP Composite.png)
+
+![30 year Monthly vs. 10-day Wind Direction Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/30 year M-10 WD Composite.png)
+
+##### Wind Speed
+
+![20 year Monthly vs. 10-day Wind Speed Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/20 year M-10 WS Composite.png)
+
+##### Wind Gust Speed
+
+![10 year Monthly vs. 10-day Wind Gust Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/10 year M-10 WG Composite.png)
+
+![20 year Monthly vs. 10-day Wind Gust Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/20 year M-10 WG Composite.png)
+
+![30 year Monthly vs. 10-day Wind Gust Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/30 year M-10 WG Composite.png)
+
+##### Average Cloud Ceiling Height
+
+![20 year Monthly vs. 10-day Cloud Ceiling Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/20 year M-10 CIG Composite.png)
+
+![30 year Monthly vs. 10-day Cloud Ceiling Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/30 year M-10 CIG Composite.png)
+
+##### Average Visibility
+
+![10 year Monthly vs. 10-day Visibility Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/10 year M-10 VIS Composite.png)
+
+![20 year Monthly vs. 10-day Visibility Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/20 year M-10 VIS Composite.png)
+
+![30 year Monthly vs. 10-day Visibility Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/30 year M-10 VIS Composite.png)
+
+##### Average Cloud Cover
+
+![10 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/10 year M-10 CC Composite.png)
+
+![20 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/20 year M-10 CC Composite.png)
+
+![30 year Monthly vs. 10-day Cloud Cover Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/30 year M-10 CC Composite.png)
+
+##### Average Altimeter Setting
+
+![20 year Monthly vs. 10-day Altimeter Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/20 year M-10 ALT Composite.png)
+
+![30 year Monthly vs. 10-day Altimeter Spline](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/ksgu/30 year M-10 ALT Composite.png)
+
+## Domain 5 {.tabset}
+
+<h2>Modeling</h2>
+
+### Adjusted R-squared Comparison
+
+Due to the amount of datapoints, the adjusted R-squared value is utilized in comparing the fit of the splines. We find that the Daily spline over-fit the data, and statistically, this is not as useful. Therefore, when comparing the 10-day vs. Monthly splines, we can see that the 10-day spline, typically outperforms the monthly in every metric.
+
+It appears that 30-years of data is most accurate. However, this does not allow for rapid changes in data. 10-years of data may be the optimal selection. Additionally, it is seen that there are variables and locations that perform much better with 20 years of data than 10. Rather than saying 20 or 30 years should be used for all variables, for the under-performing variables, 20-years of data should be considered for additional data for better fitting.
+
+```{r}
+for(i in 1:length(r_squared.df$station)) {
+  # 10 year 10-day and monthly comparison
+  if(r_squared.df$ten_yr_monthly[i]>r_squared.df$ten_yr_10day[i]){
+    print(paste0(r_squared.df$station[i]," 10-year ",r_squared.df$vars[i]," monthly adjusted r-squared value better than 10-day: ", round(r_squared.df$ten_yr_monthly[i],4)))
+  } else {
+    print(paste0(r_squared.df$station[i]," 10-year ",r_squared.df$vars[i]," 10-day adjusted r-squared value better than monthly: ", round(r_squared.df$ten_yr_10day[i],4)))
+  }
+  # 20 year 10-day and monthly comparison
+  if(r_squared.df$twenty_yr_monthly[i]>r_squared.df$twenty_yr_10day[i]){
+    print(paste0(r_squared.df$station[i]," 20-year ",r_squared.df$vars[i]," monthly adjusted r-squared value better than 10-day: ", round(r_squared.df$twenty_yr_monthly[i],4)))
+  } else {
+    print(paste0(r_squared.df$station[i]," 20-year ",r_squared.df$vars[i]," 10-day adjusted r-squared value better than monthly: ", round(r_squared.df$twenty_yr_10day[i],4)))
+  }
+  # 30 year 10-day and monthly comparison
+  if(r_squared.df$thirty_yr_monthly[i]>r_squared.df$thirty_yr_10day[i]){
+    print(paste0(r_squared.df$station[i]," 30-year ",r_squared.df$vars[i]," monthly adjusted r-squared value better than 10-day: ", round(r_squared.df$thirty_yr_monthly[i],4)))
+  } else {
+    print(paste0(r_squared.df$station[i]," 30-year ",r_squared.df$vars[i]," 10-day adjusted r-squared value better than monthly: ", round(r_squared.df$thirty_yr_10day[i],4)))
+  }
+}
+```
+
+To visualize this in chart form, the following is a tabulated representation that provides an optimal chart of which time-frame to use (10-, 20-, or 30-year) for which respective variable. Notice that for most variables, the 20-year average is an optimal amount of data to use. This is assessed by looking at the adjusted r<sup>2</sup> values for the data and looking at how much of an improvement exists by adding more data. If the improvement is minimal, then a lower r<sup>2</sup> value is used. If there is a greater improvement in the r<sup>2</sup> by adding more data, then we highlight the larger dataset.
+
+<center>
+<table>
+  <tr>
+    <th>Location/Variable</th>
+    <th>10-year</th>
+    <th>20-year</th>
+    <th>30-year</th>
+  </tr>
+  <tr>
+    <td>KRDM/Temperature</td>
+    <td class="y">`r r_squared.df$ten_yr_10day[1]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[1]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[1]`</td>
+  </tr>
+  <tr>
+    <td>KRDM/Dewpoint Temperature</td>
+    <td>`r r_squared.df$ten_yr_10day[2]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[2]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[2]`</td>
+  </tr>
+  <tr>
+    <td>KRDM/Wind Direction</td>
+    <td>`r r_squared.df$ten_yr_10day[3]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[3]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[3]`</td>
+  </tr>
+  <tr>
+    <td>KRDM/Wind Speed</td>
+    <td>`r r_squared.df$ten_yr_10day[4]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[4]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[4]`</td>
+  </tr>
+  <tr>
+    <td>KRDM/Wind Gust Speed</td>
+    <td class="y">`r r_squared.df$ten_yr_10day[5]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[5]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[5]`</td>
+  </tr>
+  <tr>
+    <td>KRDM/Cloud Ceiling</td>
+    <td>`r r_squared.df$ten_yr_10day[6]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[6]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[6]`</td>
+  </tr>
+  <tr>
+    <td>KRDM/Visibility</td>
+    <td>`r r_squared.df$ten_yr_10day[7]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[7]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[7]`</td>
+  </tr>
+  <tr>
+    <td>KRDM/Cloud Cover</td>
+    <td>`r r_squared.df$ten_yr_10day[8]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[8]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[8]`</td>
+  </tr>
+  <tr>
+    <td>KRDM/Altimeter</td>
+    <td>`r r_squared.df$ten_yr_10day[9]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[9]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[9]`</td>
+  </tr>
+  <tr>
+    <td>KBUF/Temperature</td>
+    <td class="y">`r r_squared.df$ten_yr_10day[10]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[10]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[10]`</td>
+  </tr>
+  <tr>
+    <td>KBUF/Dewpoint Temperature</td>
+    <td class="y">`r r_squared.df$ten_yr_10day[11]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[11]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[11]`</td>
+  </tr>
+  <tr>
+    <td>KBUF/Wind Direction</td>
+    <td>`r r_squared.df$ten_yr_10day[12]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[12]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[12]`</td>
+  </tr>
+  <tr>
+    <td>KBUF/Wind Speed</td>
+    <td>`r r_squared.df$ten_yr_10day[13]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[13]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[13]`</td>
+  </tr>
+  <tr>
+    <td>KBUF/Wind Gust Speed</td>
+    <td>`r r_squared.df$ten_yr_10day[14]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[14]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[14]`</td>
+  </tr>
+  <tr>
+    <td>KBUF/Cloud Ceiling</td>
+    <td>`r r_squared.df$ten_yr_10day[15]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[15]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[15]`</td>
+  </tr>
+  <tr>
+    <td>KBUF/Visibility</td>
+    <td>`r r_squared.df$ten_yr_10day[16]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[16]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[16]`</td>
+  </tr>
+  <tr>
+    <td>KBUF/Cloud Cover</td>
+    <td>`r r_squared.df$ten_yr_10day[17]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[17]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[17]`</td>
+  </tr>
+  <tr>
+    <td>KBUF/Altimeter</td>
+    <td>`r r_squared.df$ten_yr_10day[18]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[18]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[18]`</td>
+  </tr>
+  <tr>
+    <td>KFOE/Temperature</td>
+    <td class="y">`r r_squared.df$ten_yr_10day[19]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[19]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[19]`</td>
+  </tr>
+  <tr>
+    <td>KFOE/Dewpoint Temperature</td>
+    <td class="y">`r r_squared.df$ten_yr_10day[20]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[20]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[20]`</td>
+  </tr>
+  <tr>
+    <td>KFOE/Wind Direction</td>
+    <td>`r r_squared.df$ten_yr_10day[21]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[21]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[21]`</td>
+  </tr>
+  <tr>
+    <td>KFOE/Wind Speed</td>
+    <td>`r r_squared.df$ten_yr_10day[22]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[22]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[22]`</td>
+  </tr>
+  <tr>
+    <td>KFOE/Wind Gust Speed</td>
+    <td>`r r_squared.df$ten_yr_10day[23]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[23]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[23]`</td>
+  </tr>
+  <tr>
+    <td>KFOE/Cloud Ceiling</td>
+    <td>`r r_squared.df$ten_yr_10day[24]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[24]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[24]`</td>
+  </tr>
+  <tr>
+    <td>KFOE/Visibility</td>
+    <td>`r r_squared.df$ten_yr_10day[25]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[25]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[25]`</td>
+  </tr>
+  <tr>
+    <td>KFOE/Cloud Cover</td>
+    <td>`r r_squared.df$ten_yr_10day[26]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[26]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[26]`</td>
+  </tr>
+  <tr>
+    <td>KFOE/Altimeter</td>
+    <td>`r r_squared.df$ten_yr_10day[27]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[27]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[27]`</td>
+  </tr>
+  <tr>
+    <td>KMSN/Temperature</td>
+    <td class="y">`r r_squared.df$ten_yr_10day[28]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[28]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[28]`</td>
+  </tr>
+  <tr>
+    <td>KMSN/Dewpoint Temperature</td>
+    <td class="y">`r r_squared.df$ten_yr_10day[29]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[29]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[29]`</td>
+  </tr>
+  <tr>
+    <td>KMSN/Wind Direction</td>
+    <td>`r r_squared.df$ten_yr_10day[30]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[30]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[30]`</td>
+  </tr>
+  <tr>
+    <td>KMSN/Wind Speed</td>
+    <td>`r r_squared.df$ten_yr_10day[31]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[31]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[31]`</td>
+  </tr>
+  <tr>
+    <td>KMSN/Wind Gust Speed</td>
+    <td>`r r_squared.df$ten_yr_10day[32]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[32]`</td>
+    <td class="y">`r r_squared.df$thirty_yr_10day[32]`</td>
+  </tr>
+  <tr>
+    <td>KMSN/Cloud Ceiling</td>
+    <td>`r r_squared.df$ten_yr_10day[33]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[33]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[33]`</td>
+  </tr>
+  <tr>
+    <td>KMSN/Visibility</td>
+    <td>`r r_squared.df$ten_yr_10day[34]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[34]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[34]`</td>
+  </tr>
+  <tr>
+    <td>KMSN/Cloud Cover</td>
+    <td>`r r_squared.df$ten_yr_10day[35]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[35]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[35]`</td>
+  </tr>
+  <tr>
+    <td>KMSN/Altimeter</td>
+    <td>`r r_squared.df$ten_yr_10day[36]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[36]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[36]`</td>
+  </tr>
+  <tr>
+    <td>KTRI/Temperature</td>
+    <td class="y">`r r_squared.df$ten_yr_10day[37]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[37]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[37]`</td>
+  </tr>
+  <tr>
+    <td>KTRI/Dewpoint Temperature</td>
+    <td class="y">`r r_squared.df$ten_yr_10day[38]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[38]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[38]`</td>
+  </tr>
+  <tr>
+    <td>KTRI/Wind Direction</td>
+    <td>`r r_squared.df$ten_yr_10day[39]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[39]`</td>
+    <td class="y">`r r_squared.df$thirty_yr_10day[39]`</td>
+  </tr>
+  <tr>
+    <td>KTRI/Wind Speed</td>
+    <td>`r r_squared.df$ten_yr_10day[40]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[40]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[40]`</td>
+  </tr>
+  <tr>
+    <td>KTRI/Wind Gust Speed</td>
+    <td>`r r_squared.df$ten_yr_10day[41]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[41]`</td>
+    <td class="y">`r r_squared.df$thirty_yr_10day[41]`</td>
+  </tr>
+  <tr>
+    <td>KTRI/Cloud Ceiling</td>
+    <td>`r r_squared.df$ten_yr_10day[42]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[42]`</td>
+    <td class="y">`r r_squared.df$thirty_yr_10day[42]`</td>
+  </tr>
+  <tr>
+    <td>KTRI/Visibility</td>
+    <td>`r r_squared.df$ten_yr_10day[43]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[43]`</td>
+    <td class="y">`r r_squared.df$thirty_yr_10day[43]`</td>
+  </tr>
+  <tr>
+    <td>KTRI/Cloud Cover</td>
+    <td class="y">`r r_squared.df$ten_yr_10day[44]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[44]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[44]`</td>
+  </tr>
+  <tr>
+    <td>KTRI/Altimeter</td>
+    <td>`r r_squared.df$ten_yr_10day[45]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[45]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[45]`</td>
+  </tr>
+  <tr>
+    <td>PAJN/Temperature</td>
+    <td class="y">`r r_squared.df$ten_yr_10day[46]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[46]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[46]`</td>
+  </tr>
+  <tr>
+    <td>PAJN/Dewpoint Temperature</td>
+    <td class="y">`r r_squared.df$ten_yr_10day[47]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[47]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[47]`</td>
+  </tr>
+  <tr>
+    <td>PAJN/Wind Direction</td>
+    <td>`r r_squared.df$ten_yr_10day[48]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[48]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[48]`</td>
+  </tr>
+  <tr>
+    <td>PAJN/Wind Speed</td>
+    <td>`r r_squared.df$ten_yr_10day[49]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[49]`</td>
+    <td class="y">`r r_squared.df$thirty_yr_10day[49]`</td>
+  </tr>
+  <tr>
+    <td>PAJN/Wind Gust Speed</td>
+    <td class="y">`r r_squared.df$ten_yr_10day[50]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[50]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[50]`</td>
+  </tr>
+  <tr>
+    <td>PAJN/Cloud Ceiling</td>
+    <td>`r r_squared.df$ten_yr_10day[51]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[51]`</td>
+    <td class="y">`r r_squared.df$thirty_yr_10day[51]`</td>
+  </tr>
+  <tr>
+    <td>PAJN/Visibility</td>
+    <td>`r r_squared.df$ten_yr_10day[52]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[52]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[52]`</td>
+  </tr>
+  <tr>
+    <td>PAJN/Cloud Cover</td>
+    <td>`r r_squared.df$ten_yr_10day[53]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[53]`</td>
+    <td class="y">`r r_squared.df$thirty_yr_10day[53]`</td>
+  </tr>
+  <tr>
+    <td>PAJN/Altimeter</td>
+    <td>`r r_squared.df$ten_yr_10day[54]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[54]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[54]`</td>
+  </tr>
+  <tr>
+    <td>KELP/Temperature</td>
+    <td class="y">`r r_squared.df$ten_yr_10day[55]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[55]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[55]`</td>
+  </tr>
+  <tr>
+    <td>KELP/Dewpoint Temperature</td>
+    <td class="y">`r r_squared.df$ten_yr_10day[56]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[56]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[56]`</td>
+  </tr>
+  <tr>
+    <td>KELP/Wind Direction</td>
+    <td>`r r_squared.df$ten_yr_10day[57]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[57]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[57]`</td>
+  </tr>
+  <tr>
+    <td>KELP/Wind Speed</td>
+    <td>`r r_squared.df$ten_yr_10day[58]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[58]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[58]`</td>
+  </tr>
+  <tr>
+    <td>KELP/Wind Gust Speed</td>
+    <td>`r r_squared.df$ten_yr_10day[59]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[59]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[59]`</td>
+  </tr>
+  <tr>
+    <td>KELP/Cloud Ceiling</td>
+    <td>`r r_squared.df$ten_yr_10day[60]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[60]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[60]`</td>
+  </tr>
+  <tr>
+    <td>KELP/Visibility</td>
+    <td>`r r_squared.df$ten_yr_10day[61]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[61]`</td>
+    <td class="y">`r r_squared.df$thirty_yr_10day[61]`</td>
+  </tr>
+  <tr>
+    <td>KELP/Cloud Cover</td>
+    <td>`r r_squared.df$ten_yr_10day[62]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[62]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[62]`</td>
+  </tr>
+  <tr>
+    <td>KELP/Altimeter</td>
+    <td>`r r_squared.df$ten_yr_10day[63]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[63]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[63]`</td>
+  </tr>
+  <tr>
+    <td>KSGU/Temperature</td>
+    <td class="y">`r r_squared.df$ten_yr_10day[64]`</td>
+    <td>`r r_squared.df$twenty_yr_10day[64]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[64]`</td>
+  </tr>
+  <tr>
+    <td>KSGU/Dewpoint Temperature</td>
+    <td>`r r_squared.df$ten_yr_10day[65]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[65]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[65]`</td>
+  </tr>
+  <tr>
+    <td>KSGU/Wind Direction</td>
+    <td>`r r_squared.df$ten_yr_10day[66]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[66]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[66]`</td>
+  </tr>
+  <tr>
+    <td>KSGU/Wind Speed</td>
+    <td>`r r_squared.df$ten_yr_10day[67]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[67]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[67]`</td>
+  </tr>
+  <tr>
+    <td>KSGU/Wind Gust Speed</td>
+    <td>`r r_squared.df$ten_yr_10day[68]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[68]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[68]`</td>
+  </tr>
+  <tr>
+    <td>KSGU/Cloud Ceiling</td>
+    <td>`r r_squared.df$ten_yr_10day[69]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[69]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[69]`</td>
+  </tr>
+  <tr>
+    <td>KSGU/Visibility</td>
+    <td>`r r_squared.df$ten_yr_10day[70]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[70]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[70]`</td>
+  </tr>
+  <tr>
+    <td>KSGU/Cloud Cover</td>
+    <td>`r r_squared.df$ten_yr_10day[71]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[71]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[71]`</td>
+  </tr>
+  <tr>
+    <td>KSGU/Altimeter</td>
+    <td>`r r_squared.df$ten_yr_10day[72]`</td>
+    <td class="y">`r r_squared.df$twenty_yr_10day[72]`</td>
+    <td>`r r_squared.df$thirty_yr_10day[72]`</td>
+  </tr>
+</table>
+</center>
+
+Note that the data suggests that 20-years of data provides an overall, better fit to the data.
+
+### Spline Comparison {.tabset}
+
+We will compare the spline models generated by doing the following:
+
+* Create subsets of the data: 1994-2003, 2004-2013, and 2014-2023
+
+* Generate linear regressions for each Julian Day for each of the date ranges. This will calculate the trend for each 10 year span. 
+
+Of note, a positive number is the slope, or a positive trend in the data. For temperature, this would indicate a warming trend for that portion of the year. A negative number would indicate a cooling trend for that portion of the year.
+
+
+#### Heavy Snow Winter
+
+![Comparison of KRDM and KBUF 10-day Temperature Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/krdm-kbuf-t.png)
+![Comparison of KRDM and KBUF 10-day Dewpoint Temperature Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/krdm-kbuf-dp.png)
+![Comparison of KRDM and KBUF 10-day Wind Direction Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/krdm-kbuf-wd.png)
+![Comparison of KRDM and KBUF 10-day Wind Speed Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/krdm-kbuf-ws.png)
+![Comparison of KRDM and KBUF 10-day Wind Gust Speed Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/krdm-kbuf-wg.png)
+![Comparison of KRDM and KBUF 10-day Cloud Ceiling Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/krdm-kbuf-cig.png)
+![Comparison of KRDM and KBUF 10-day Visibility Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/krdm-kbuf-vis.png)
+![Comparison of KRDM and KBUF 10-day Cloud Cover Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/krdm-kbuf-cc.png)
+![Comparison of KRDM and KBUF 10-day Altimeter Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/krdm-kbuf-alt.png)
+![Comparison of KRDM and KBUF Precipitation](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/krdm-kbuf-p.png)
+
+#### Warm Summer, Cold Winter
+
+![Comparison of KFOE, KMSN, KTRI, PAJN 10-day Temperature Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/kfoe-kmsn-ktri-pajn-t.png)
+![Comparison of KFOE, KMSN, KTRI, PAJN 10-day Dewpoint Temperature Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/kfoe-kmsn-ktri-pajn-dp.png)
+![Comparison of KFOE, KMSN, KTRI, PAJN 10-day Wind Direction Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/kfoe-kmsn-ktri-pajn-wd.png)
+![Comparison of KFOE, KMSN, KTRI, PAJN 10-day Wind Speed Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/kfoe-kmsn-ktri-pajn-ws.png)
+![Comparison of KFOE, KMSN, KTRI, PAJN 10-day Wind Gust Speed Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/kfoe-kmsn-ktri-pajn-wg.png)
+![Comparison of KFOE, KMSN, KTRI, PAJN 10-day Cloud Ceiling Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/kfoe-kmsn-ktri-pajn-cig.png)
+![Comparison of KFOE, KMSN, KTRI, PAJN 10-day Visibility Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/kfoe-kmsn-ktri-pajn-vis.png)
+![Comparison of KFOE, KMSN, KTRI, PAJN 10-day Cloud Cover Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/kfoe-kmsn-ktri-pajn-cc.png)
+![Comparison of KFOE, KMSN, KTRI, PAJN 10-day Altimeter Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/kfoe-kmsn-ktri-pajn-alt.png)
+![Comparison of KFOE, KMSN, KTRI, PAJN Precipitation](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/kfoe-kmsn-ktri-pajn-p.png)
+
+#### Arid
+
+![Comparison of KELP and KSGU 10-day Temperature Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/kelp-ksgu-t.png)
+![Comparison of 10-day Dewpoint Temperature Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/kelp-ksgu-dp.png)
+![Comparison of 10-day Wind Direction Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/kelp-ksgu-wd.png)
+![Comparison of 10-day Wind Speed Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/kelp-ksgu-ws.png)
+![Comparison of 10-day Wind Gust Speed Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/kelp-ksgu-wg.png)
+![Comparison of 10-day Cloud Ceiling Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/kelp-ksgu-cig.png)
+![Comparison of 10-day Visibility Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/kelp-ksgu-vis.png)
+![Comparison of 10-day Cloud Cover Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/kelp-ksgu-cc.png)
+![Comparison of 10-day Altimeter Splines](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/kelp-ksgu-alt.png)
+![Comparison of Precipitation](C:/Users/hurley/OneDrive/Documents/MSDA Capstone/images/clim_comps/kelp-ksgu-p.png)
+
+### Adjusted R-squared with adjusted 10-year intervals
+
+Notice below that previous decades of splines outperformed the latest 10 years of data. This implies that using 10 years of data is changing in a couple of ways:
+
+1. The sensors could be reporting better observations than they previously reported.
+
+2. The conditions are changing more quickly than previously observed.
+
+3. With time, as the human element has been removed from observation transmission, the quality of observations has decreased which has introduced more errors into the observations.
+
+```{r}
+ten = 0
+twenty = 0
+thirty = 0
+for(i in 1:length(r_squared_revised.df$station)) {
+  vals = c(r_squared_revised.df$ten_yr_10day[i],r_squared_revised.df$twenty_yr_rvsd_10day[i],r_squared_revised.df$thirty_yr_rvsd_10day[i])
+  maximum = max(vals)
+  if(r_squared_revised.df$ten_yr_10day[i]==maximum) {
+    print(paste0(r_squared_revised.df$station[i]," 10-year ",r_squared_revised.df$vars[i]," adjusted r-squared outperforms others: ",round(r_squared_revised.df$ten_yr_10day[i],4)))
+    ten = ten + 1
+  }
+  if(r_squared_revised.df$twenty_yr_rvsd_10day[i]==maximum) {
+    print(paste0(r_squared_revised.df$station[i]," 20-year ",r_squared_revised.df$vars[i]," adjusted r-squared outperforms others: ",round(r_squared_revised.df$twenty_yr_rvsd_10day[i],4)))
+    twenty = twenty + 1
+  } 
+  if(r_squared_revised.df$thirty_yr_rvsd_10day[i]==maximum) {
+    print(paste0(r_squared_revised.df$station[i]," 30-year ",r_squared_revised.df$vars[i]," adjusted r-squared outperforms others: ",round(r_squared_revised.df$thirty_yr_rvsd_10day[i],4)))
+    thirty = thirty + 1
+  }
+}
+
+print(paste0("Number of times 10-year was the best adjusted r-squared: ",ten))
+print(paste0("Number of times 10-year was the best adjusted r-squared: ",twenty))
+print(paste0("Number of times 10-year was the best adjusted r-squared: ",thirty))
+```
+
+### Trend Analysis {.tabset}
+
+Here we perform an analysis of the previous spline trends. As mentioned - the positive numbers mean a positive slope, the negative numbers are a negative slope. We will sum the numbers - if the result is positive, there is a positive trend over the years and, if the sum is negative, there is a negative trend over the years.
+
+#### KRDM
+
+```{r}
+print(paste0("krdm temperature slope trend: ",round(sum(krdm_t_fv),1),if(sum(krdm_t_fv)>0){" --> WARMING"} else {" --> COOLING"}))
+print(paste0("krdm dewpoint temperature slope trend: ",round(sum(krdm_dp_fv),1),if(sum(krdm_dp_fv)>0){" --> MOISTENING"} else {" --> DRYING"}))
+print(paste0("krdm wind direction slope trend: ",round(sum(krdm_wd_fv),1),if(sum(krdm_wd_fv)>0){" --> BECOMING MORE WESTERLY/NORTHERLY"} else {" --> BECOMING MORE SOUTHERLY/EASTERLY"}))
+print(paste0("krdm wind speed slope trend: ",round(sum(krdm_ws_fv),1),if(sum(krdm_ws_fv)>0){" --> SPEED INCREASING"} else {" --> SPEED DECREASING"}))
+print(paste0("krdm wind gust slope trend: ",round(sum(krdm_wg_fv),1),if(sum(krdm_wg_fv)>0){" --> SPEED INCREASING"} else {" --> SPEED DECREASING"}))
+print(paste0("krdm cloud ceilings slope trend: ",round(sum(krdm_cig_fv),1),if(sum(krdm_cig_fv)>0){" --> CLOUD DECKS RAISING"} else {" --> CLOUD DECKS DROPPING"}))
+print(paste0("krdm visibility slope trend: ",round(sum(krdm_vis_fv),1),if(sum(krdm_vis_fv)>0){" --> VISIBILITY INCREASING"} else {" --> VISIBILITY DECREASING"}))
+print(paste0("krdm cloud cover slope trend: ",round(sum(krdm_cc_fv),1),if(sum(krdm_cc_fv)>0){" --> MORE CLOUDY"} else {" --> LESS CLOUDY"}))
+print(paste0("krdm altimeter slope trend: ",round(sum(krdm_alt_fv),1),if(sum(krdm_alt_fv)>0){" --> PRESSURE RISING"} else {" --> PRESSURE DROPPING"}))
+print(paste0("krdm precipitation slope trend: ",round(sum(krdm_p_fv),1),if(sum(krdm_p_fv)>0){" --> INCREASING PRECIPITATION"} else {" --> DECREASING PRECIPITATION"}))
+```
+
+#### KBUF
+
+```{r}
+print(paste0("kbuf temperature slope trend: ",round(sum(kbuf_t_fv),1),if(sum(kbuf_t_fv)>0){" --> WARMING"} else {" --> COOLING"}))
+print(paste0("kbuf dewpoint temperature slope trend: ",round(sum(kbuf_dp_fv),1),if(sum(kbuf_dp_fv)>0){" --> MOISTENING"} else {" --> DRYING"}))
+print(paste0("kbuf wind direction slope trend: ",round(sum(kbuf_wd_fv),1),if(sum(kbuf_wd_fv)>0){" --> BECOMING MORE WESTERLY/NORTHERLY"} else {" --> BECOMING MORE SOUTHERLY/EASTERLY"}))
+print(paste0("kbuf wind speed slope trend: ",round(sum(kbuf_ws_fv),1),if(sum(kbuf_ws_fv)>0){" --> SPEED INCREASING"} else {" --> SPEED DECREASING"}))
+print(paste0("kbuf wind gust slope trend: ",round(sum(kbuf_wg_fv),1),if(sum(kbuf_wg_fv)>0){" --> SPEED INCREASING"} else {" --> SPEED DECREASING"}))
+print(paste0("kbuf cloud ceilings slope trend: ",round(sum(kbuf_cig_fv),1),if(sum(kbuf_cig_fv)>0){" --> CLOUD DECKS RAISING"} else {" --> CLOUD DECKS DROPPING"}))
+print(paste0("kbuf visibility slope trend: ",round(sum(kbuf_vis_fv),1),if(sum(kbuf_vis_fv)>0){" --> VISIBILITY INCREASING"} else {" --> VISIBILITY DECREASING"}))
+print(paste0("kbuf cloud cover slope trend: ",round(sum(kbuf_cc_fv),1),if(sum(kbuf_cc_fv)>0){" --> MORE CLOUDY"} else {" --> LESS CLOUDY"}))
+print(paste0("kbuf altimeter slope trend: ",round(sum(kbuf_alt_fv),1),if(sum(kbuf_alt_fv)>0){" --> PRESSURE RISING"} else {" --> PRESSURE DROPPING"}))
+print(paste0("kbuf precipitation slope trend: ",round(sum(kbuf_p_fv),1),if(sum(kbuf_p_fv)>0){" --> INCREASING PRECIPITATION"} else {" --> DECREASING PRECIPITATION"}))
+```
+
+#### KFOE
+
+```{r}
+print(paste0("kfoe temperature slope trend: ",round(sum(kfoe_t_fv),1),if(sum(kfoe_t_fv)>0){" --> WARMING"} else {" --> COOLING"}))
+print(paste0("kfoe dewpoint temperature slope trend: ",round(sum(kfoe_dp_fv),1),if(sum(kfoe_dp_fv)>0){" --> MOISTENING"} else {" --> DRYING"}))
+print(paste0("kfoe wind direction slope trend: ",round(sum(kfoe_wd_fv),1),if(sum(kfoe_wd_fv)>0){" --> BECOMING MORE WESTERLY/NORTHERLY"} else {" --> BECOMING MORE SOUTHERLY/EASTERLY"}))
+print(paste0("kfoe wind speed slope trend: ",round(sum(kfoe_ws_fv),1),if(sum(kfoe_ws_fv)>0){" --> SPEED INCREASING"} else {" --> SPEED DECREASING"}))
+print(paste0("kfoe wind gust slope trend: ",round(sum(kfoe_wg_fv),1),if(sum(kfoe_wg_fv)>0){" --> SPEED INCREASING"} else {" --> SPEED DECREASING"}))
+print(paste0("kfoe cloud ceilings slope trend: ",round(sum(kfoe_cig_fv),1),if(sum(kfoe_cig_fv)>0){" --> CLOUD DECKS RAISING"} else {" --> CLOUD DECKS DROPPING"}))
+print(paste0("kfoe visibility slope trend: ",round(sum(kfoe_vis_fv),1),if(sum(kfoe_vis_fv)>0){" --> VISIBILITY INCREASING"} else {" --> VISIBILITY DECREASING"}))
+print(paste0("kfoe cloud cover slope trend: ",round(sum(kfoe_cc_fv),1),if(sum(kfoe_cc_fv)>0){" --> MORE CLOUDY"} else {" --> LESS CLOUDY"}))
+print(paste0("kfoe altimeter slope trend: ",round(sum(kfoe_alt_fv),1),if(sum(kfoe_alt_fv)>0){" --> PRESSURE RISING"} else {" --> PRESSURE DROPPING"}))
+print(paste0("kfoe precipitation slope trend: ",round(sum(kfoe_p_fv),1),if(sum(kfoe_p_fv)>0){" --> INCREASING PRECIPITATION"} else {" --> DECREASING PRECIPITATION"}))
+```
+
+#### KMSN
+
+```{r}
+print(paste0("kmsn temperature slope trend: ",round(sum(kmsn_t_fv),1),if(sum(kmsn_t_fv)>0){" --> WARMING"} else {" --> COOLING"}))
+print(paste0("kmsn dewpoint temperature slope trend: ",round(sum(kmsn_dp_fv),1),if(sum(kmsn_dp_fv)>0){" --> MOISTENING"} else {" --> DRYING"}))
+print(paste0("kmsn wind direction slope trend: ",round(sum(kmsn_wd_fv),1),if(sum(kmsn_wd_fv)>0){" --> BECOMING MORE WESTERLY/NORTHERLY"} else {" --> BECOMING MORE SOUTHERLY/EASTERLY"}))
+print(paste0("kmsn wind speed slope trend: ",round(sum(kmsn_ws_fv),1),if(sum(kmsn_ws_fv)>0){" --> SPEED INCREASING"} else {" --> SPEED DECREASING"}))
+print(paste0("kmsn wind gust slope trend: ",round(sum(kmsn_wg_fv),1),if(sum(kmsn_wg_fv)>0){" --> SPEED INCREASING"} else {" --> SPEED DECREASING"}))
+print(paste0("kmsn cloud ceilings slope trend: ",round(sum(kmsn_cig_fv),1),if(sum(kmsn_cig_fv)>0){" --> CLOUD DECKS RAISING"} else {" --> CLOUD DECKS DROPPING"}))
+print(paste0("kmsn visibility slope trend: ",round(sum(kmsn_vis_fv),1),if(sum(kmsn_vis_fv)>0){" --> VISIBILITY INCREASING"} else {" --> VISIBILITY DECREASING"}))
+print(paste0("kmsn cloud cover slope trend: ",round(sum(kmsn_cc_fv),1),if(sum(kmsn_cc_fv)>0){" --> MORE CLOUDY"} else {" --> LESS CLOUDY"}))
+print(paste0("kmsn altimeter slope trend: ",round(sum(kmsn_alt_fv),1),if(sum(kmsn_alt_fv)>0){" --> PRESSURE RISING"} else {" --> PRESSURE DROPPING"}))
+print(paste0("kmsn precipitation slope trend: ",round(sum(kmsn_p_fv),1),if(sum(kmsn_p_fv)>0){" --> INCREASING PRECIPITATION"} else {" --> DECREASING PRECIPITATION"}))
+```
+
+#### KTRI
+
+```{r}
+print(paste0("ktri temperature slope trend: ",round(sum(ktri_t_fv),1),if(sum(ktri_t_fv)>0){" --> WARMING"} else {" --> COOLING"}))
+print(paste0("ktri dewpoint temperature slope trend: ",round(sum(ktri_dp_fv),1),if(sum(ktri_dp_fv)>0){" --> MOISTENING"} else {" --> DRYING"}))
+print(paste0("ktri wind direction slope trend: ",round(sum(ktri_wd_fv),1),if(sum(ktri_wd_fv)>0){" --> BECOMING MORE WESTERLY/NORTHERLY"} else {" --> BECOMING MORE SOUTHERLY/EASTERLY"}))
+print(paste0("ktri wind speed slope trend: ",round(sum(ktri_ws_fv),1),if(sum(ktri_ws_fv)>0){" --> SPEED INCREASING"} else {" --> SPEED DECREASING"}))
+print(paste0("ktri wind gust slope trend: ",round(sum(ktri_wg_fv),1),if(sum(ktri_wg_fv)>0){" --> SPEED INCREASING"} else {" --> SPEED DECREASING"}))
+print(paste0("ktri cloud ceilings slope trend: ",round(sum(ktri_cig_fv),1),if(sum(ktri_cig_fv)>0){" --> CLOUD DECKS RAISING"} else {" --> CLOUD DECKS DROPPING"}))
+print(paste0("ktri visibility slope trend: ",round(sum(ktri_vis_fv),1),if(sum(ktri_vis_fv)>0){" --> VISIBILITY INCREASING"} else {" --> VISIBILITY DECREASING"}))
+print(paste0("ktri cloud cover slope trend: ",round(sum(ktri_cc_fv),1),if(sum(ktri_cc_fv)>0){" --> MORE CLOUDY"} else {" --> LESS CLOUDY"}))
+print(paste0("ktri altimeter slope trend: ",round(sum(ktri_alt_fv),1),if(sum(ktri_alt_fv)>0){" --> PRESSURE RISING"} else {" --> PRESSURE DROPPING"}))
+print(paste0("ktri precipitation slope trend: ",round(sum(ktri_p_fv),1),if(sum(ktri_p_fv)>0){" --> INCREASING PRECIPITATION"} else {" --> DECREASING PRECIPITATION"}))
+```
+
+#### PAJN
+
+```{r}
+print(paste0("pajn temperature slope trend: ",round(sum(pajn_t_fv),1),if(sum(pajn_t_fv)>0){" --> WARMING"} else {" --> COOLING"}))
+print(paste0("pajn dewpoint temperature slope trend: ",round(sum(pajn_dp_fv),1),if(sum(pajn_dp_fv)>0){" --> MOISTENING"} else {" --> DRYING"}))
+print(paste0("pajn wind direction slope trend: ",round(sum(pajn_wd_fv),1),if(sum(pajn_wd_fv)>0){" --> BECOMING MORE WESTERLY/NORTHERLY"} else {" --> BECOMING MORE SOUTHERLY/EASTERLY"}))
+print(paste0("pajn wind speed slope trend: ",round(sum(pajn_ws_fv),1),if(sum(pajn_ws_fv)>0){" --> SPEED INCREASING"} else {" --> SPEED DECREASING"}))
+print(paste0("pajn wind gust slope trend: ",round(sum(pajn_wg_fv),1),if(sum(pajn_wg_fv)>0){" --> SPEED INCREASING"} else {" --> SPEED DECREASING"}))
+print(paste0("pajn cloud ceilings slope trend: ",round(sum(pajn_cig_fv),1),if(sum(pajn_cig_fv)>0){" --> CLOUD DECKS RAISING"} else {" --> CLOUD DECKS DROPPING"}))
+print(paste0("pajn visibility slope trend: ",round(sum(pajn_vis_fv),1),if(sum(pajn_vis_fv)>0){" --> VISIBILITY INCREASING"} else {" --> VISIBILITY DECREASING"}))
+print(paste0("pajn cloud cover slope trend: ",round(sum(pajn_cc_fv),1),if(sum(pajn_cc_fv)>0){" --> MORE CLOUDY"} else {" --> LESS CLOUDY"}))
+print(paste0("pajn altimeter slope trend: ",round(sum(pajn_alt_fv),1),if(sum(pajn_alt_fv)>0){" --> PRESSURE RISING"} else {" --> PRESSURE DROPPING"}))
+print(paste0("pajn precipitation slope trend: ",round(sum(pajn_p_fv),1),if(sum(pajn_p_fv)>0){" --> INCREASING PRECIPITATION"} else {" --> DECREASING PRECIPITATION"}))
+```
+
+#### KELP
+
+```{r}
+print(paste0("kelp temperature slope trend: ",round(sum(kelp_t_fv),1),if(sum(kelp_t_fv)>0){" --> WARMING"} else {" --> COOLING"}))
+print(paste0("kelp dewpoint temperature slope trend: ",round(sum(kelp_dp_fv),1),if(sum(kelp_dp_fv)>0){" --> MOISTENING"} else {" --> DRYING"}))
+print(paste0("kelp wind direction slope trend: ",round(sum(kelp_wd_fv),1),if(sum(kelp_wd_fv)>0){" --> BECOMING MORE WESTERLY/NORTHERLY"} else {" --> BECOMING MORE SOUTHERLY/EASTERLY"}))
+print(paste0("kelp wind speed slope trend: ",round(sum(kelp_ws_fv),1),if(sum(kelp_ws_fv)>0){" --> SPEED INCREASING"} else {" --> SPEED DECREASING"}))
+print(paste0("kelp wind gust slope trend: ",round(sum(kelp_wg_fv),1),if(sum(kelp_wg_fv)>0){" --> SPEED INCREASING"} else {" --> SPEED DECREASING"}))
+print(paste0("kelp cloud ceilings slope trend: ",round(sum(kelp_cig_fv),1),if(sum(kelp_cig_fv)>0){" --> CLOUD DECKS RAISING"} else {" --> CLOUD DECKS DROPPING"}))
+print(paste0("kelp visibility slope trend: ",round(sum(kelp_vis_fv),1),if(sum(kelp_vis_fv)>0){" --> VISIBILITY INCREASING"} else {" --> VISIBILITY DECREASING"}))
+print(paste0("kelp cloud cover slope trend: ",round(sum(kelp_cc_fv),1),if(sum(kelp_cc_fv)>0){" --> MORE CLOUDY"} else {" --> LESS CLOUDY"}))
+print(paste0("kelp altimeter slope trend: ",round(sum(kelp_alt_fv),1),if(sum(kelp_alt_fv)>0){" --> PRESSURE RISING"} else {" --> PRESSURE DROPPING"}))
+print(paste0("kelp precipitation slope trend: ",round(sum(kelp_p_fv),1),if(sum(kelp_p_fv)>0){" --> INCREASING PRECIPITATION"} else {" --> DECREASING PRECIPITATION"}))
+```
+
+#### KSGU
+
+```{r}
+print(paste0("ksgu temperature slope trend: ",round(sum(ksgu_t_fv),1),if(sum(ksgu_t_fv)>0){" --> WARMING"} else {" --> COOLING"}))
+print(paste0("ksgu dewpoint temperature slope trend: ",round(sum(ksgu_dp_fv),1),if(sum(ksgu_dp_fv)>0){" --> MOISTENING"} else {" --> DRYING"}))
+print(paste0("ksgu wind direction slope trend: ",round(sum(ksgu_wd_fv),1),if(sum(ksgu_wd_fv)>0){" --> BECOMING MORE WESTERLY/NORTHERLY"} else {" --> BECOMING MORE SOUTHERLY/EASTERLY"}))
+print(paste0("ksgu wind speed slope trend: ",round(sum(ksgu_ws_fv),1),if(sum(ksgu_ws_fv)>0){" --> SPEED INCREASING"} else {" --> SPEED DECREASING"}))
+print(paste0("ksgu wind gust slope trend: ",round(sum(ksgu_wg_fv),1),if(sum(ksgu_wg_fv)>0){" --> SPEED INCREASING"} else {" --> SPEED DECREASING"}))
+print(paste0("ksgu cloud ceilings slope trend: ",round(sum(ksgu_cig_fv),1),if(sum(ksgu_cig_fv)>0){" --> CLOUD DECKS RAISING"} else {" --> CLOUD DECKS DROPPING"}))
+print(paste0("ksgu visibility slope trend: ",round(sum(ksgu_vis_fv),1),if(sum(ksgu_vis_fv)>0){" --> VISIBILITY INCREASING"} else {" --> VISIBILITY DECREASING"}))
+print(paste0("ksgu cloud cover slope trend: ",round(sum(ksgu_cc_fv),1),if(sum(ksgu_cc_fv)>0){" --> MORE CLOUDY"} else {" --> LESS CLOUDY"}))
+print(paste0("ksgu altimeter slope trend: ",round(sum(ksgu_alt_fv),1),if(sum(ksgu_alt_fv)>0){" --> PRESSURE RISING"} else {" --> PRESSURE DROPPING"}))
+print(paste0("ksgu precipitation slope trend: ",round(sum(ksgu_p_fv),1),if(sum(ksgu_p_fv)>0){" --> INCREASING PRECIPITATION"} else {" --> DECREASING PRECIPITATION"}))
+```
+
+#### Trend Recap
+
+In the following table, red-orange represents an increasing number (like increasing temperature) with time. This could also mean a wind direction coming from a more westerly or northwesterly direction instead of a southerly direction. The blue color represents a decreasing number with time (like decreasing temperature). This could also mean a wind direction coming from a more southerly, or southeasterly direction instead of a westerly direction.
+
+<center>
+<table>
+  <tr>
+    <th>VARIABLE</th>
+    <th>KRDM</th>
+    <th>KBUF</th>
+    <th>KFOE</th>
+    <th>KMSN</th>
+    <th>KTRI</th>
+    <th>PAJN</th>
+    <th>KELP</th>
+    <th>KSGU</th>
+  </tr>
+  <tr>
+    <td>Temperature Slope Trend</td>
+    <td class="r">`r round(sum(krdm_t_fv),1)`</td>
+    <td class="r">`r round(sum(kbuf_t_fv),1)`</td>
+    <td class="r">`r round(sum(kfoe_t_fv),1)`</td>
+    <td class="b">`r round(sum(kmsn_t_fv),1)`</td>
+    <td class="r">`r round(sum(ktri_t_fv),1)`</td>
+    <td class="r">`r round(sum(pajn_t_fv),1)`</td>
+    <td class="r">`r round(sum(kelp_t_fv),1)`</td>
+    <td class="b">`r round(sum(ksgu_t_fv),1)`</td>
+  </tr>
+  <tr>
+    <td>Dewpoint Temperature Slope Trend</td>
+    <td class="r">`r round(sum(krdm_dp_fv),1)`</td>
+    <td class="b">`r round(sum(kbuf_dp_fv),1)`</td>
+    <td class="r">`r round(sum(kfoe_dp_fv),1)`</td>
+    <td class="b">`r round(sum(kmsn_dp_fv),1)`</td>
+    <td class="r">`r round(sum(ktri_dp_fv),1)`</td>
+    <td class="r">`r round(sum(pajn_dp_fv),1)`</td>
+    <td class="b">`r round(sum(kelp_dp_fv),1)`</td>
+    <td class="r">`r round(sum(ksgu_dp_fv),1)`</td>
+  </tr>
+  <tr>
+    <td>Wind Direction Slope Trend</td>
+    <td class="b">`r round(sum(krdm_wd_fv),1)`</td>
+    <td class="b">`r round(sum(kbuf_wd_fv),1)`</td>
+    <td class="r">`r round(sum(kfoe_wd_fv),1)`</td>
+    <td class="r">`r round(sum(kmsn_wd_fv),1)`</td>
+    <td class="r">`r round(sum(ktri_wd_fv),1)`</td>
+    <td class="b">`r round(sum(pajn_wd_fv),1)`</td>
+    <td class="r">`r round(sum(kelp_wd_fv),1)`</td>
+    <td class="r">`r round(sum(ksgu_wd_fv),1)`</td>
+  </tr>
+  <tr>
+    <td>Wind Speed Slope Trend</td>
+    <td class="r">`r round(sum(krdm_ws_fv),1)`</td>
+    <td class="r">`r round(sum(kbuf_ws_fv),1)`</td>
+    <td class="b">`r round(sum(kfoe_ws_fv),1)`</td>
+    <td class="b">`r round(sum(kmsn_ws_fv),1)`</td>
+    <td class="b">`r round(sum(ktri_ws_fv),1)`</td>
+    <td class="r">`r round(sum(pajn_ws_fv),1)`</td>
+    <td class="b">`r round(sum(kelp_ws_fv),1)`</td>
+    <td class="r">`r round(sum(ksgu_ws_fv),1)`</td>
+  </tr>
+  <tr>
+    <td>Wind Gust Speed Slope Trend</td>
+    <td class="r">`r round(sum(krdm_wg_fv),1)`</td>
+    <td class="r">`r round(sum(kbuf_wg_fv),1)`</td>
+    <td class="r">`r round(sum(kfoe_wg_fv),1)`</td>
+    <td class="r">`r round(sum(kmsn_wg_fv),1)`</td>
+    <td class="b">`r round(sum(ktri_wg_fv),1)`</td>
+    <td class="r">`r round(sum(pajn_wg_fv),1)`</td>
+    <td class="r">`r round(sum(kelp_wg_fv),1)`</td>
+    <td class="r">`r round(sum(ksgu_wg_fv),1)`</td>
+  </tr>
+  <tr>
+    <td>Cloud Ceiling Slope Trend</td>
+    <td class="b">`r round(sum(krdm_cig_fv),1)`</td>
+    <td class="b">`r round(sum(kbuf_cig_fv),1)`</td>
+    <td class="b">`r round(sum(kfoe_cig_fv),1)`</td>
+    <td class="b">`r round(sum(kmsn_cig_fv),1)`</td>
+    <td class="b">`r round(sum(ktri_cig_fv),1)`</td>
+    <td class="r">`r round(sum(pajn_cig_fv),1)`</td>
+    <td class="b">`r round(sum(kelp_cig_fv),1)`</td>
+    <td class="b">`r round(sum(ksgu_cig_fv),1)`</td>
+  </tr>
+  <tr>
+    <td>Visibility Slope Trend</td>
+    <td class="b">`r round(sum(krdm_vis_fv),1)`</td>
+    <td class="r">`r round(sum(kbuf_vis_fv),1)`</td>
+    <td class="b">`r round(sum(kfoe_vis_fv),1)`</td>
+    <td class="r">`r round(sum(kmsn_vis_fv),1)`</td>
+    <td class="r">`r round(sum(ktri_vis_fv),1)`</td>
+    <td class="b">`r round(sum(pajn_vis_fv),1)`</td>
+    <td class="b">`r round(sum(kelp_vis_fv),1)`</td>
+    <td class="b">`r round(sum(ksgu_vis_fv),1)`</td>
+  </tr>
+  <tr>
+    <td>Cloud Cover Slope Trend</td>
+    <td class="b">`r round(sum(krdm_cc_fv),1)`</td>
+    <td class="b">`r round(sum(kbuf_cc_fv),1)`</td>
+    <td class="b">`r round(sum(kfoe_cc_fv),1)`</td>
+    <td class="r">`r round(sum(kmsn_cc_fv),1)`</td>
+    <td class="b">`r round(sum(ktri_cc_fv),1)`</td>
+    <td class="b">`r round(sum(pajn_cc_fv),1)`</td>
+    <td class="b">`r round(sum(kelp_cc_fv),1)`</td>
+    <td class="b">`r round(sum(ksgu_cc_fv),1)`</td>
+  </tr>
+  <tr>
+    <td>Altimeter Slope Trend</td>
+    <td class="r">`r round(sum(krdm_alt_fv),1)`</td>
+    <td class="r">`r round(sum(kbuf_alt_fv),1)`</td>
+    <td class="r">`r round(sum(kfoe_alt_fv),1)`</td>
+    <td class="r">`r round(sum(kmsn_alt_fv),1)`</td>
+    <td class="r">`r round(sum(ktri_alt_fv),1)`</td>
+    <td class="r">`r round(sum(pajn_alt_fv),1)`</td>
+    <td class="b">`r round(sum(kelp_alt_fv),1)`</td>
+    <td class="r">`r round(sum(ksgu_alt_fv),1)`</td>
+  </tr>
+  <tr>
+    <td>Precipitation Slope Trend</td>
+    <td class="r">`r round(sum(krdm_p_fv),1)`</td>
+    <td class="r">`r round(sum(kbuf_p_fv),1)`</td>
+    <td class="r">`r round(sum(kfoe_p_fv),1)`</td>
+    <td class="r">`r round(sum(kmsn_p_fv),1)`</td>
+    <td class="r">`r round(sum(ktri_p_fv),1)`</td>
+    <td class="r">`r round(sum(pajn_p_fv),1)`</td>
+    <td class="r">`r round(sum(kelp_p_fv),1)`</td>
+    <td class="b">`r round(sum(ksgu_p_fv),1)`</td>
+  </tr>
+</table>
+</center>
+
+
+
+## Domain 6 {.tabset}
+
+<h2>Summary and Deployment</h2>
+
+### Summary
+
+<h4>Observations</h4>
+
+* Temperatures are warming throughout all eight areas for most of the periods of time. This is anticipated as we use a shorter dataset we can expect to see fluctuations more rapidly.
+
+* Dewpoint Temperatures stayed similar over time for all locations.
+
+* Wind Direction varies DRASTICALLY by location and time of year.
+
+* Aside from KRDM and PAJN, Wind Speeds are fairly similar by each location in magnitude and with peaks and troughs.
+
+* Wind Gust Speed varies DRASTICALLY by location and time of year.
+
+* Cloud Ceilings vary DRASTICALLY by location and time of year, however, it appears that as we use less data (generally) we see a slight lowering of the ceilings.
+
+* Visibility seems to be decreasing (generally) with time as well. However, visibility seems to be worse overall in the wintertime, as you might expect.
+
+* Cloud Cover is decreasing with time for all locations.This makes sense as the warming atmosphere will decrease the amount of cloud cover.
+
+* Altimeter Setting was difficult to tell the trend with time, however, all locations except PAJN showed a strong drop in the spring-time
+
+
+<h4>Results from Analysis</h4>
+
+* 10-day analysis is statistically significant for all locations and almost all variables.
+
+* Wind Speed is the variable that has the worst correlation
+
+
+<h5>Comparing trends of the 10-year periods through time:</h5>
+
+* There appears to be a consistent warming trend in the summer and a cooling trend in February, meaning, February is getting colder and the summer months are getting warmer than normal.
+
+* The transition months of Spring and Fall tend to be more moist (higher dewpoint temperatures), while summer and winter tend to have decreasing dewpoint temperatures (drier)
+
+* Wind direction seems to be shifting more to the west (increasing) throughout the year for most locations
+
+* Wind speed is not changing much - the slope is nearly zero for all locations
+
+* Wind gusts seem to be increasing, although this is a slow rate of change
+
+* Cloud ceilings change frequently, however, many locations are showing a general decrease in the cloud ceilings with time
+
+* Visibility is not consistent across locations, but there seems to be a trend of slightly worsening (decreasing) visibility over time
+
+* Aside from KMSN, all locations are showing a decrease in cloud cover with time
+
+* We are seeing frequent oscillations in Altimeter setting for all locations. This means that the low-pressure systems are either getting stronger (lower pressure) or certain days/weeks of the year tend to get more storms, which cause the average pressure to drop more. It doesn't take a large pressure change to make a storm stronger.
+
+* Due to the radically changing conditions, it's impossible to say for how long these 10-day OCDSs would be valid. However, as the current process is to produce them as data changes, they would be produced until the need no longer exists.
+
+* Daily average precipitation seems to be increasing with time.
+
+### Deployment
+
+<h4>Recommendations</h4>
+
+* 10-years of data is "good enough" - it allows us to visualize the data we want in trend-time we want to have it effective for. Statistically, more years of data weighs the data towards a false normal and doesn't allow it to change as rapidly. However, 20-years of data may be preferential for calculating average wind speed, cloud cover, visibility and altimeter setting.
+
+* 10-day intervals for data analysis could prove useful for many reasons - perhaps, the most important being it would assist customers in planning efforts long into the future.
+
+* There are not enough similarities to simplify model running by season for each location. If there is an operational need for sub-monthly time periods for an OCDS, then an entire product should be created as the trends vary widely by variable. However, it appears, generally, there is little change during the middle of summer between the various datasets.
+
+* There doesn't appear to be a consistent enough "rate of change" that could forecast out the lifespan of the 10-day OCDS. Thus, the recommendation is to produce them ad hoc for customers on a case by case basis. Ad hoc production allows the product to be created without much additional strain of resources - that is, it doesn't over-task computing or personnel resources in product creation.
+
+* Recommend modifying the Python code within the Data Quality section that produces the OCDS to allow for the 10-day interval as necessary. These could be produced for "high-quality" sites that already have a history of good quality OCDSs being produced.
+
+#  {.unnumbered}
