@@ -28,3 +28,8 @@ analysis-Plots.R:
 2. Similarly, replace all instances of "krdm" with your desired ICAO.
 3. This creates all the plots (56 for each location)
 
+climo-analysis.Rmd:
+1. There are many instances of hard-coding into this file to speed up the process (it took ~3hrs to compile/run due to the complexity/computational intensity of the dependant scripts). So, pick what you want, cut what you want. I made use of lots of tabs to make interacting with the data simpler, without as much scrolling.
+2. Something to keep in mind, it references the locations of the .pngs you created in the previous, 'Plot' script. Make sure if you use this layout you are changing the directory path so it will pull the correct picture. Also, you may want to remove the 14th Weather Squadron emblem (line 80) otherwise it will probably kill it or hang it up (after running the long scripts).
+
+The .R scripts can be run independent of the .Rmd file. However, the analysis-Rcode.R script needs to be run prior to the analysis-Plots.R script, as the prior is dependent upon the later.
